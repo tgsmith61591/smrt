@@ -10,16 +10,18 @@ import os
 __version__ = '0.1'
 
 try:
-	# this var is injected in the setup build to enable
-	# the retrieval of the version number without actually
-	# importing the un-built submodules.
-	__SMITE_SETUP__
+    # this var is injected in the setup build to enable
+    # the retrieval of the version number without actually
+    # importing the un-built submodules.
+    __SMITE_SETUP__
 except NameError:
-	__SMITE_SETUP__ = False
+    __SMITE_SETUP__ = False
 
 if __SMITE_SETUP__:
-	sys.stderr.write('Partial import of SMITE during the build process.' + os.linesep)
+    sys.stderr.write('Partial import of SMITE during the build process.' + os.linesep)
 else:
-	__all__ = [
+    __all__ = [
+        'balance'
+    ]
 
-	]
+    from .balance import balance
