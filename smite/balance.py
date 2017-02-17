@@ -12,8 +12,8 @@ __all__ = [
     'balance'
 ]
 
-MAX_N_CLASSES = 100
-MIN_N_SAMPLES = 2
+MAX_N_CLASSES = 100  # max unique classes in y
+MIN_N_SAMPLES = 2  # min n_samples per class in y
 
 
 def balance(X, y, layers, ratio=0.2, random_state=None, parameters=None, learning_rule='sgd',
