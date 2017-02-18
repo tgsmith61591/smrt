@@ -5,10 +5,12 @@
 # The SMITE balancer
 
 from __future__ import division, absolute_import, division
-from sklearn.base import BaseEstimator
+from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
-from sklearn.utils.multiclass import unique_labels, type_of_target
+from sklearn.utils.multiclass import type_of_target
 from sklearn.utils.validation import check_array
+from sklearn.base import BaseEstimator
+from sklearn.externals import six
 from sknn.ae import AutoEncoder, Layer
 import numpy as np
 
@@ -84,17 +86,22 @@ class LayerParameters(BaseEstimator):
                      corruption_level=self.corruption_level, warning=None)  # he has this weird arg in there...
 
 
-def balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, random_state=None, parameters=None, 
-            learning_rule='sgd', learning_rate=0.01, learning_momentum=0.9, batch_size=1, n_iter=None, 
-            n_stable=10, f_stable=0.001, valid_set=None, valid_size=0.0, normalize=None, regularize=None, 
+def _validate_layers(layers):
+    assert all(isinstance(x, LayerParameters) for x in layers), 'layers should be a list, ' \
+                                                                'tuple or dict of smite.balance.LayerParameters'
+
+
+def balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, sample_ratio=0.5, random_state=None, 
+            parameters=None, learning_rule='sgd', learning_rate=0.01, learning_momentum=0.9, batch_size=1, 
+            n_iter=None, n_stable=10, f_stable=0.001, valid_set=None, valid_size=0.0, normalize=None, regularize=None, 
             weight_decay=None, dropout_rate=None, loss_type=None, callback=None, debug=False, verbose=None, 
-            **params):
+            **auto_encoder_params):
     """SMITE (Sythetic Minority Interpolation TEchnique) is the younger, more sophisticated cousin to
     SMOTE (Synthetic Minority Oversampling TEchnique). Using auto-encoders, SMITE learns the parameters 
     that best reconstruct the observations in each minority class, and then generates synthetic observations
     until the minority class is represented at a minimum of ``balance_ratio`` * majority_class_size. 
 
-    SMITE avoids one of SMOTE's greatest risks In SMOTE, when drawing random observations from whose k-nearest 
+    SMITE avoids one of SMOTE's greatest risks: In SMOTE, when drawing random observations from whose k-nearest 
     neighbors to reconstruct, the possibility exists that a "border point," or an observation very close to 
     the decision boundary may be selected. This could result in the synthetically-generated observations lying 
     too close to the decision boundary for reliable classification, and could lead to the degraded performance
@@ -114,7 +121,9 @@ def balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, random_
     layers : list of :class:``LayerParameters``, optional (default=None)
         An iterable sequence of ``LayerParameters`` defining the structure of 
         the hidden layers. If layers is not specifed, the default is to create a single hidden
-        layer with default ``LayerParameters`` args, and with ``0.6 * n_features``.
+        layer with default ``LayerParameters`` args, and with ``0.6 * n_features``. If ``layers``
+        is a dict, the keys must correspond to the class labels. This is how different ``LabelParameters``
+        can be set for different class labels.
 
     return_encoders : bool, optional (default=False)
         Whether or not to return the dictionary of fit ``sknn.ae.AutoEncoder`` instances.
@@ -124,7 +133,10 @@ def balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, random_
 
     balance_ratio : float, optional (default=0.2)
         The minimum acceptable ratio of $MINORITY_CLASS : $MAJORITY_CLASS representation,
-        where 0. < ``ratio`` <= 1.
+        where 0 < ``ratio`` <= 1
+
+    sample_ratio : float, optional (default=0.5)
+        The ratio of observations for each class to reconstruct with some jitter.
 
     random_state: int, optional
         Seed for the initialization of the neural network parameters (e.g.
@@ -269,7 +281,7 @@ def balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, random_
     if y_type not in supported_types:
         raise ValueError('SMITE balancer only supports %r, but got %r' % (supported_types, y_type))
 
-    present_classes = unique_labels(y)
+    present_classes, counts = np.unique(y, return_counts=True)
     n_classes = len(present_classes)
 
     # ensure <= MAX_N_CLASSES
@@ -278,12 +290,84 @@ def balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, random_
                          'unique class labels, but %i were identified.' % (MAX_N_CLASSES, n_classes))
 
     # check layers:
+    is_dict = False
     if layers is None:
         layers = [LayerParameters(units=max(1, 0.6 * n_features))]
     else:
-        assert isinstance(layers, (list, tuple)), 'expected a list or tuple for layers, but got type=%s' % type(layers)
-        assert all(isinstance(x, LayerParameters) for x in layers), 'layers should be a list or tuple of smite.balance.LayerParameters'
+        if not isinstance(layers, (list, tuple, dict)):
+            raise TypeError('expected a list, tuple or dict for layers, but got type=%s' % type(layers))
 
-    
+        if isinstance(layers, (tuple, list)):
+            _validate_layers(layers)
+        else:
+            # it's a dict. Assert all keys are in present classes
+            is_dict = True
+            for k, v in six.iteritems(layers):
+                assert k in present_classes, '%r is not a valid class label (seen labels=%r)' % (k, present_classes.tolist())
+                _validate_layers(v)
 
-    pass
+    # get the majority class label, and its count:
+    majority_count_idx = np.argmax(counts, axis=0)
+    majority_label, majority_count = present_classes[majority_count_idx], counts[majority_count_idx]
+    target_count = int(balance_ratio * majority_count)
+
+    # if any counts < MIN_N_SAMPLES, raise:
+    if any(i < MIN_N_SAMPLES for i in counts):
+        raise ValueError('All label counts must be >= %i' % MIN_N_SAMPLES)
+
+    # encode y, in case they are not numeric
+    le = LabelEncoder()
+    le.fit(present_classes)
+    y_transform = le.transform(y)  # make numeric
+
+    # start the iteration...
+    encoders = dict()  # map the label to the fit encoder
+    for i, label in enumerate(present_classes):
+        if label == majority_label:
+            continue
+
+        # if the count >= the ratio, skip this label
+        count = counts[i]
+        if count >= target_count:
+            encoders[label] = None
+            continue
+
+        # generate the layers from the template
+        if is_dict:
+            these_layers = [layer.build_new() for layer in layers[label]]  # build layers from dict
+        else:
+            these_layers = [layer.build_new() for layer in layers]  # build layers from list/tuple
+
+        # fit the autoencoder
+        encoder = AutoEncoder(layers=these_layers,  # the constructed instances
+                              random_state=random_state, parameters=parameters, learning_rule=learning_rule,
+                              learning_rate=learning_rate, learning_momentum=learning_momentum, batch_size=batch_size,
+                              n_iter=n_iter, n_stable=n_stable, f_stable=f_stable, valid_set=valid_set,
+                              valid_size=valid_size, normalize=normalize, regularize=regularize, 
+                              weight_decay=weight_decay, dropout_rate=dropout_rate, loss_type=loss_type,
+                              callback=callback, debug=debug, verbose=verbose, 
+                              warning=None,  # I STILL don't get why in the world he used this stupid parameter?
+                              **auto_encoder_params)
+
+        # subset and fit
+        transformed_label = le.transform([label])[0]
+        X_sub = X[y_transform == transformed_label, :]
+
+        encoder.fit(X_sub)
+        encoders[label] = encoder
+
+        # transform X_sub, rank it
+        reconstructed = encoder.transform(X_sub)
+        mse = np.asarray([
+            mean_squared_error(X_sub[i, :], reconstructed[i, :]) 
+            for i in range(X_sub.shape[0])
+        ])
+
+        # rank order:
+        ordered = reconstructed[np.argsort(mse), :]
+
+        # todo:
+
+    if return_encoders:
+        return output, encoders
+    return output
