@@ -7,20 +7,17 @@
 from __future__ import division, absolute_import, division
 from .utils import get_random_state
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_array
+from sklearn.utils.validation import check_array, check_is_fitted
 from sklearn.externals import six
 from numpy.random import RandomState
 import numpy as np
-import theano as th
-from theano.tensor.shared_randomstreams import RandomStreams
-from theano import tensor as T
-from theano.tensor import nnet as nn
+import tensorflow as tf
 import uuid
 import timeit
 import sys
 
 __all__ = [
-    'DenoisingAutoEncoder'
+    'AutoEncoder'
 ]
 
 if sys.version_info[0] >= 3:
@@ -29,55 +26,10 @@ if sys.version_info[0] >= 3:
 else:
     from types import NoneType
 
-DTYPE = th.config.floatX
 PERMITTED_ACTIVATIONS = {
-    nn.relu, nn.sigmoid
+    'sigmoid': tf.nn.sigmoid,
+    'relu': tf.nn.relu
 }
-
-
-def initial_weight_matrix(n_hidden, n_visible, name, random_state=None, borrow=True):
-    """Create the initial weight matrix. Credit goes to:
-    http://deeplearning.net/tutorial/dA.html
-
-    Parameters
-    ----------
-    # todo
-    """
-    random_state = get_random_state(random_state)
-
-    # W is initialized with `initial_W` which is uniformly sampled
-    # from -4 * sqrt(6. / (n_visible + n_hidden)) and
-    # 4 * sqrt(6. / (n_hidden + n_visible)) the output of uniform if
-    # converted using asarray to dtype
-    # theano.config.floatX so that the code is runnable on GPU
-    initial_W = np.asarray(
-        random_state.uniform(
-            low=-4 * np.sqrt(6. / (n_hidden + n_visible)),
-            high=4 * np.sqrt(6. / (n_hidden + n_visible)),
-            size=(n_visible, n_hidden)
-        ),
-        dtype=th.config.floatX
-    )
-
-    return th.shared(value=initial_W, name=name, borrow=borrow)
-
-
-def initial_bias_vector(n_units, name, borrow=True):
-    """Create the initial bias vector. Credit goes to:
-    http://deeplearning.net/tutorial/dA.html
-
-    Parameters
-    ----------
-    # todo
-    """
-    return th.shared(
-        value=np.zeros(
-            n_units,
-            dtype=th.config.floatX
-        ),
-        name=name,
-        borrow=borrow
-    )
 
 
 def _validate_float(val, name):
@@ -89,185 +41,153 @@ def _validate_float(val, name):
     return res
 
 
-class DenoisingAutoEncoder(BaseEstimator, TransformerMixin):
+def _weights_biases_from_hidden(n_hidden, n_features, compression):
+    """Internal method. Given the hidden layer structure, number of features,
+    and compression factor, generate the initial weights and bias matrix.
     """
+    if n_hidden is None:
+        n_hidden = max(1, int(compression * n_features))
+
+    if not isinstance(n_hidden, (list, tuple)):
+        if not isinstance(n_hidden, (long, int, np.int)):
+            raise ValueError('n_hidden must be an int, tuple or list')
+
+        # it's an int
+        weights = {
+            'encode': {'h0': tf.Variable(tf.random_normal([n_features, n_hidden]))},
+            'decode': {'h0': tf.Variable(tf.random_normal([n_hidden, n_features]))}
+        }
+
+        biases = {
+            'encode': {'b0': tf.Variable(tf.random_normal([n_hidden]))},
+            'decode': {'b0': tf.Variable(tf.random_normal([n_features]))}
+        }
+    else:
+        # it's iterable. There will be two times as many layers as the length of n_hidden:
+        # n_hidden * encode layer, and n_hidden * decode layer. Since the dimensions are
+        # piped into one another, stagger them (zipped with a lag), and then reverse for
+        # the decode layer. First, though, append n_features to n_hidden
+        n_hidden.insert(0, n_features)
+
+        encode_dimensions = list(zip(n_hidden[:-1], n_hidden[1:]))
+        decode_dimensions = [(v, k) for k, v in reversed(encode_dimensions)]  # pyramid back to n_features
+
+        weights, biases = {'encode': {}, 'decode': {}}, {'encode': {}, 'decode': {}}
+        for i, t in enumerate(encode_dimensions):
+            enc_a, enc_b = t
+            dec_a, dec_b = decode_dimensions[i]
+
+            # initialize weights for encode/decode layer. While the encode layeres progress through the
+            # zipped dimensions, the decode layer steps back up to eventually mapping back to the input space
+            weights['encode']['h%i' % i] = tf.Variable(tf.random_normal([enc_a, enc_b]))
+            weights['decode']['h%i' % i] = tf.Variable(tf.random_normal([dec_a, dec_b]))
+
+            # the dimensions of the bias vectors are equivalent to the [1] index of the tuple
+            biases['encode']['b%i' % i] = tf.Variable(tf.random_normal([enc_b]))
+            biases['decode']['b%i' % i] = tf.Variable(tf.random_normal([dec_b]))
+
+    return weights, biases
+
+
+
+class AutoEncoder(BaseEstimator, TransformerMixin):
+    """
+
 
     Parameters
     ----------
-    activation_function
+    activation_function : str or callable, optional (default='relu')
+        The activation function. If str, should be one of PERMITTED_ACTIVATIONS. If
+        callable, should be contained in the ``tensorflow.nn`` module.
 
-    borrow : bool, optional (default=True)
-        It is a safe practice (and a good idea) to use ``borrow=True`` in a ``shared``
-        variable constructor when the shared variable stands for a large object 
-        (in terms of memory footprint) and you do not want to create copies of it in memory.
-        Since the ``AutoEncoder`` shares ``X`` in the ``fit`` method, by default ``borrow``
-        is True. If you intend to run this on a GPU server, it is recommended you set ``borrow``
-        to True.
-
-    n_hidden : int or list, optional (default=None)
-        The number of neurons in the hidden layer. If the default (None) is used, ``hidden_size``
-        will amount to ``0.6 * n_features`` so the network is forced to learn a compressed feature 
-        space.
-
-    n_visible
-
-    W : ``theano.tensor.TensorType``, optional (default=None)
-        If this autoencoder will be used for stacked de-noising, this should point to a set of weights
-        that should be shared between the autoencoder instance, and the other architecture. If this
-        autoencoder will stand alone, ``W`` should be None (default).
-
-    b_hid : ``theano.tensor.TensorType``, optional (default=None)
-        The Theano variable pointing to a set of bias values that will be shared between this autoencoder
-        and another architecture, if stacked. If this autoencoder will stand alone, ``b_hid`` should be None
-        (default).
-
-    b_vis : ``theano.tensor.TensorType``, optional (default=None)
-        The Theano variable pointing to a set of bias values that will be shared between this autoencoder
-        and another architecture, if stacked. If this autoencoder will stand alone, ``b_vis`` should be None
-        (default).
-
-    n_epochs : int, optional (default=100)
-
-    mini_batch_size : int, optional (default=1)
-
-    learning_rate : float, optional (default=0.1)
-        The rate at which the autoencoder will learn. Default is 0.1.
-
-    denoise_amount : float, optional (default=0.3)
-
-    verbose : int, optional (default=0)
-        The level of verbosity. 0 will produce no output.
-
-    random_state : int, None or ``numpy.random.RandomState``
-        The PRNG used to generate initial weight matrix and for other random operations.
     """
 
-    def __init__(self, activation_function=nn.relu, borrow=True, n_hidden=None, n_visible=784,
-                 W=None, b_hid=None, b_vis=None, n_epochs=100, mini_batch_size=1, learning_rate=0.1,
-                 denoise_amount=0.3, verbose=0, random_state=None):
-
+    def __init__(self, activation_function='relu', learning_rate=0.01, n_epochs=20, batch_size=256,
+                 n_hidden=None, compression_ratio=0.6):
         self.activation_function = activation_function
-        self.borrow = borrow
-        self.n_hidden = n_hidden
-        self.n_visible = n_visible
-        self.W = W
-        self.b_hid = b_hid
-        self.b_vis = b_vis
-        self.n_epochs = n_epochs
-        self.mini_batch_size = mini_batch_size
         self.learning_rate = learning_rate
-        self.denoise_amt = denoise_amount
-        self.verbose = verbose
-        self.random_state = get_random_state(random_state)  # set up the random state if not already
+        self.n_epochs = n_epochs
+        self.batch_size = batch_size
+        self.n_hidden = n_hidden
+        self.compression_ratio = compression_ratio
 
-    def fit(self, X, y=None, **kwargs):
-        # get names. These are assigned to unique UUID values to ensure no collisions, in
-        # case the name keys actually matter for anything lookup-related...
-        model_id = str(uuid.uuid1())
-        X_nm, W_nm, bvis_nm, bhid_nm = tuple('ae-%s-%s' % (model_id, c) for c in ('X', 'W', 'b_vis', 'b_hid'))
+    def fit(self, X, y=None, **fit_params):
+        self.fit_transform(X, y, **fit_params)
+        return self
 
-        # validate X, share with Theano
-        borrow = self.borrow
-        X = th.shared(name=X_nm,
-                      value=check_array(X, accept_sparse=False,
-                                        force_all_finite=True,
-                                        ensure_2d=True),
-                      dtype=DTYPE, borrow=borrow)
+    def fit_transform(self, X, y=None, **kwargs):
+        # validate X, then make it into TF structure
+        X = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True)
         n_samples, n_features = X.shape
 
-        # validate activation
-        if not all(func in PERMITTED_ACTIVATIONS for func in (self.activation_function,)):
-            raise ValueError('Permitted activation/output functions: %r' % PERMITTED_ACTIVATIONS)
+        # assign X to tf
+        X = tf.placeholder('float', [None, n_features])
 
-        # validate the denoising amt, re-assign in class
-        self.denoise_amt = denoise_amt = _validate_float(self.denoise_amt, 'denoise_amt')
-        self.learning_rate = learning_rate = _validate_float(self.learning_rate, 'learning_rate')
+        # validate floats
+        _validate_float(self.compression_ratio, 'compression_ratio')
+        _validate_float(self.learning_rate, 'learning_rate')
 
-        # validate the n_hidden, n_visible
-        n_hidden, n_visible = self.n_hidden, self.n_visible
-        if n_hidden is None:
-            n_hidden = max(1, int(0.6 * n_features))
-        if not all(isinstance(x, (int, np.int)) for x in (n_hidden, n_visible)):
-            raise ValueError('n_hidden and n_visible must be ints')
+        # validate activation, set it:
+        if isinstance(self.activation_function, six.string_types):
+            if self.activation_function not in PERMITTED_ACTIVATIONS:
+                raise ValueError('Permitted activation functions: %r' % PERMITTED_ACTIVATIONS)
+            self.activation_function = PERMITTED_ACTIVATIONS[self.activation_function]
+        # if it's a callable just let it pass
+        elif not hasattr(self.activation_function, '__call__'):
+            raise ValueError('Activation function must be a string or a callable')
 
         # set up our weight matrix. This needs to be re-initialized for every fit, since (like sklearn)
         # we want to allow for model/transformer re-fits. IF we don't reinitialize, the next input
         # either gets a warm-start or a potentially already grand-mothered weight matrix.
-        random_state = self.random_state
-        W, b_vis, b_hid = self.W, self.b_vis, self.b_hid
-        if not W:
-            W = initial_weight_matrix(n_hidden, n_visible, name=W_nm,
-                                      random_state=random_state,
-                                      borrow=borrow)
+        self.w_, self.b_ = _weights_biases_from_hidden(self.n_hidden, n_features, self.compression_ratio)
 
-        if not b_vis:
-            b_vis = initial_bias_vector(n_visible, name=bvis_nm, borrow=borrow)
+        # actually fit the model, now
+        encode_op = self._encode(X)
+        decode_op = self._decode(encode_op)
+        y_true, y_pred = X, decode_op
 
-        if not b_hid:
-            b_hid = initial_bias_vector(n_hidden, name=bhid_nm, borrow=borrow)
+        # get loss and optimizer, minimize MSE
+        cost = tf.reduce_mean(tf.pow(y_true - y_pred, 2))
+        optimizer = tf.train.RMSPropOptimizer(self.learning_rate).minimize(cost)
 
-        # assign instance vars:
-        self.W_ = W
-        self.b_ = b_hid
-        self.b_prime_ = b_vis
-        self.W_prime_ = W.T  # tied weights, so W_prime is W transpose
+        # initialize global vars for tf, then run it
+        init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            sess.run(init)
+            total_batch = int(n_samples / self.batch_size)
 
-        # set a random stream for a Theano RNG using the numpy RNG
-        theano_rng = RandomStreams(random_state.randint(2 ** 30))
+            # training cycle:
+            for epoch in range(self.n_epochs):
+                # loop batches
+                for i in range(total_batch):
+                    # generate batches...
 
-        # allocate symbolic variables for the data
-        index = T.lscalar()  # index to a [mini]batch
-        cost, updates = self._get_cost_updates(X, theano_rng)
-        train_func = th.function([index], cost, updates=updates,
-                                 givens={
-                                     x:
-                                 })
+    def _encode(self, X):
+        return self._encode_decode_from_stages(X, 'encode')
 
-        start_time = timeit.default_timer()
-        for epoch in range(self.n_epochs):
+    def _decode(self, X):
+        return self._encode_decode_from_stages(X, 'decode')
 
+    def _encode_decode_from_stages(self, X, key):
+        w, b = self.w_[key], self.b_[key]
+        plan = sorted(w.keys())  # key is either 'encode' or 'decode'
 
+        next_layer = None
+        for stage in plan:
+            weights, biases = w[stage], b[stage]
 
-    def _get_hidden_values(self, X):
-        """Compute values of hidden layer"""
-        return self.activation_function(T.dot(X, self.W_) + self.b_)
+            # if it's the first hidden layer, the input tensor is X, otherwise the last layer
+            tensor = X if next_layer is None else next_layer
+            next_layer = self.activation_function(tf.add(tf.matmul(tensor, weights), biases))
 
-    def _get_corrupted_input(self, X, theano_rng):
-        """
-        #todo
-        """
-        return theano_rng.binomial(size=X.shape, n=self.mini_batch_size,
-                                   p=1 - self.denoise_amt,
-                                   dtype=th.config.floatX) * X
-
-    def _get_reconstructed_input(self, y):
-        return self.activation_function(T.dot(y, self.W_prime_) + self.b_prime_)
-
-    def _get_cost_updates(self, X, theano_rng):
-        """ This function computes the cost and the updates for one training
-        step of the dA """
-
-        tilde_X = self._get_corrupted_input(X, theano_rng)
-        y = self._get_hidden_values(tilde_X)
-        z = self._get_reconstructed_input(y)
-
-        # compute the cost (cross-entropy):
-        L = -T.sum(X * T.log(z) + (1 - X) * T.log(1 - z), axis=1)
-        cost = L.mean()
-
-        # compute gradients with respect to params
-        params = [self.W_, self.b_, self.b_prime_]
-        gparams = T.grad(cost, params)
-
-        # create list of updates
-        updates = [
-            (param, param * self.learning_rate * gparam)
-            for param, gparam in zip(params, gparams)
-        ]
-
-        return (cost, updates)
+        return next_layer
 
     def transform(self, X):
+        check_is_fitted(self, 'w_')
+        X = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True)
+        return self._encode(X)
 
-    def reconstruct(self, X):
-
+    def inverse_transform(self, X):
+        check_is_fitted(self, 'w_')
+        X = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True)
+        return self._decode(X)

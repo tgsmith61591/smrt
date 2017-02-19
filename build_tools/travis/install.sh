@@ -52,7 +52,7 @@ if [[ "$DISTRIB" == "conda" ]]; then
     fi
 
     pip install scikit-learn==$SCIKIT_LEARN_VERSION
-    pip install Theano
+    pip install tensorflow
     pip install coveralls
 
     # Install nose-timer via pip
