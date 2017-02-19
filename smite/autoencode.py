@@ -284,21 +284,31 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
 
         return next_layer
 
-    def transform(self, X):
+    def _apply_transformation_steps(self, X, *steps):
         check_is_fitted(self, 'w_')
-        X = _X_to_tf(X)
 
-        return self._encode(X).eval()
+        X_orig = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True)
+        X = tf.placeholder('float', [None, X_orig.shape[1]])
+
+        init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            sess.run(init)
+
+            # do the steps all in one batch, because scoring is cheap:
+            result = None
+            for step in steps:
+                if result is None:
+                    result = step(X)
+                else:
+                    result = step(result)
+
+            return sess.run(result, feed_dict={X: X_orig})
+
+    def transform(self, X):
+        return self._apply_transformation_steps(X, *(self._encode,))
 
     def inverse_transform(self, X):
-        check_is_fitted(self, 'w_')
-        X = _X_to_tf(X)
-
-        return self._decode(X).eval()
+        return self._apply_transformation_steps(X, *(self._decode,))
 
     def encode_and_reconstruct(self, X):
-        check_is_fitted(self, 'w_')
-        X = _X_to_tf(X)
-
-        # don't call transform/inverse_transform, since they will duplicate data again
-        return self._decode(self._encode(X)).eval()
+        return self._apply_transformation_steps(X, *(self._encode, self._decode))
