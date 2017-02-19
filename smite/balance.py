@@ -5,17 +5,23 @@
 # The SMITE balancer
 
 from __future__ import division, absolute_import, division
+from numpy.random import RandomState
+from sklearn.utils import column_or_1d
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils.multiclass import type_of_target
 from sklearn.utils.validation import check_array
 from sklearn.base import BaseEstimator
 from sklearn.externals import six
+
+# we have to import from the backend first. Weird design...
+from sknn.backend.lasagne.mlp import *
 from sknn.ae import AutoEncoder, Layer
+from sknn import mlp
 import numpy as np
 
 __all__ = [
-    'balance',
+    'smite_balance',
     'LayerParameters'
 ]
 
@@ -87,15 +93,21 @@ class LayerParameters(BaseEstimator):
 
 
 def _validate_layers(layers):
-    assert all(isinstance(x, LayerParameters) for x in layers), 'layers should be a list, ' \
-                                                                'tuple or dict of smite.balance.LayerParameters'
+    if not all(isinstance(x, LayerParameters) for x in layers):
+        raise ValueError('layers should be a list, tuple or dict of smite.balance.LayerParameters')
 
 
-def balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, sample_ratio=0.5, random_state=None, 
-            parameters=None, learning_rule='sgd', learning_rate=0.01, learning_momentum=0.9, batch_size=1, 
-            n_iter=None, n_stable=10, f_stable=0.001, valid_set=None, valid_size=0.0, normalize=None, regularize=None, 
-            weight_decay=None, dropout_rate=None, loss_type=None, callback=None, debug=False, verbose=None, 
-            **auto_encoder_params):
+def _validate_ratios(ratio, name):
+    if not 0. < ratio <= 1.:
+        raise ValueError('Expected 0 < %s <= 1, but got %r' 
+                         % (name, ratio))
+
+
+def smite_balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, eps=1.0, random_state=None,
+                  parameters=None, learning_rule='sgd', learning_rate=0.01, learning_momentum=0.9, batch_size=1, 
+                  n_iter=None, n_stable=10, f_stable=0.001, valid_set=None, valid_size=0.0, normalize=None, regularize=None, 
+                  weight_decay=None, dropout_rate=None, loss_type=None, callback=None, debug=False, verbose=None, 
+                  **auto_encoder_params):
     """SMITE (Sythetic Minority Interpolation TEchnique) is the younger, more sophisticated cousin to
     SMOTE (Synthetic Minority Oversampling TEchnique). Using auto-encoders, SMITE learns the parameters 
     that best reconstruct the observations in each minority class, and then generates synthetic observations
@@ -128,15 +140,19 @@ def balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, sample_
     return_encoders : bool, optional (default=False)
         Whether or not to return the dictionary of fit ``sknn.ae.AutoEncoder`` instances.
         If True, the return value will be a tuple, with the first index being the balanced
-        ``X`` matrix, and the second index being a dictionary of the fit encoders. If False,
-        the return value is simply the balanced ``X`` matrix.
+        ``X`` matrix, the second index being the ``y`` values, and the third index being a 
+        dictionary of the fit encoders. If False, the return value is simply the balanced ``X`` 
+        matrix and the corresponding labels.
 
     balance_ratio : float, optional (default=0.2)
         The minimum acceptable ratio of $MINORITY_CLASS : $MAJORITY_CLASS representation,
         where 0 < ``ratio`` <= 1
 
-    sample_ratio : float, optional (default=0.5)
-        The ratio of observations for each class to reconstruct with some jitter.
+    eps : float, optional (default=1.0)
+        A value between 0 and 1. This is used to jitter the sample. We create a random matrix, 
+        M x N, (bound in [0, 1]), subtract 0.5 (so there are some negatives), and then multiply
+        by ``eps``. Finally, we multiply by the columnar standard deviations, and add to the sample.
+        As ``eps`` approaches 1, the jitter is increased; as it approaches 0, it is decreased.
 
     random_state: int, optional
         Seed for the initialization of the neural network parameters (e.g.
@@ -260,19 +276,25 @@ def balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, sample_
         output by customising the verbosity level and formatter for ``sknn`` logger.
     """
     # validate the cheap stuff before copying arrays around...
-    assert 0. < balance_ratio <= 1., 'Expected 0 < balance_ratio <= 1, but got balance_ratio=%r' % balance_ratio
+    _validate_ratios(balance_ratio, 'balance_ratio')
+    _validate_ratios(eps, 'eps')
+
+    # set seed:
+    if random_state is None:
+        random_state = RandomState()  # default random state
 
     # validate arrays
     X = check_array(X, accept_sparse=False, dtype=np.float32)
     y = check_array(y, accept_sparse=False, ensure_2d=False, dtype=None)
 
     n_samples, n_features = X.shape
-    y = np.atleast_1d(y)
+    y = column_or_1d(y, warn=False)  
 
-    if y.ndim == 1:
+    # np.atleast_1d(y)
+    # if y.ndim == 1:
         # reshape is necessary to preserve the data contiguity against vs
         # [:, np.newaxis] that does not.
-        y = np.reshape(y, (-1, 1))
+        # y = np.reshape(y, (-1, 1))
 
     # get n classes in y, ensure they are <= MAX_N_CLASSES, but first ensure these are actually
     # class labels and not floats or anything...
@@ -309,7 +331,7 @@ def balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, sample_
     # get the majority class label, and its count:
     majority_count_idx = np.argmax(counts, axis=0)
     majority_label, majority_count = present_classes[majority_count_idx], counts[majority_count_idx]
-    target_count = int(balance_ratio * majority_count)
+    target_count = max(int(balance_ratio * majority_count), 1)
 
     # if any counts < MIN_N_SAMPLES, raise:
     if any(i < MIN_N_SAMPLES for i in counts):
@@ -349,25 +371,52 @@ def balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, sample_
                               warning=None,  # I STILL don't get why in the world he used this stupid parameter?
                               **auto_encoder_params)
 
-        # subset and fit
+        # transform label
         transformed_label = le.transform([label])[0]
-        X_sub = X[y_transform == transformed_label, :]
 
-        encoder.fit(X_sub)
-        encoders[label] = encoder
+        # sample while under the requisite ratio
+        while True:
+            X_sub = X[y_transform == transformed_label, :]
 
-        # transform X_sub, rank it
-        reconstructed = encoder.transform(X_sub)
-        mse = np.asarray([
-            mean_squared_error(X_sub[i, :], reconstructed[i, :]) 
-            for i in range(X_sub.shape[0])
-        ])
+            # the second+ time thru, we don't want to re-fit...
+            if label not in encoders:
+                encoder.fit(X_sub)
+                encoders[label] = encoder
 
-        # rank order:
-        ordered = reconstructed[np.argsort(mse), :]
+            # transform X_sub, rank it
+            reconstructed = encoder.transform(X_sub)
+            mse = np.asarray([
+                mean_squared_error(X_sub[i, :], reconstructed[i, :]) 
+                for i in range(X_sub.shape[0])
+            ])
 
-        # todo:
+            # rank order:
+            ordered = X_sub[np.argsort(mse), :]  # order ascending by reconstruction error
+            sample_count = target_count - X_sub.shape[0]
+            sample = ordered[:sample_count]  # the interpolation sample
+
+            # jitter the sample. We create a random matrix, M x N, (bound in [0, 1]),
+            # subtract 0.5 (so there are some negatives), multiply by the columnar standard
+            # deviations, and add to the sample.
+            sample += (eps * (sample.std(axis=0) * (random_state.rand(*sample.shape) - 0.5)))
+
+            # transform the sample batch, and the output is the interpolated minority sample
+            interpolated = encoder.transform(sample)
+
+            # append to X, y
+            X = X.vstack(X, interpolated)
+            y_transform = np.concatenate([y_transform, np.ones(interpolated.shape[0]) * transformed_label])
+
+            # determine whether we need to recurse for this class (if there were too few samples)
+            if interpolated.shape[0] + X_sub.shape[0] >= target_count:
+                break
+
+    # now that X, y_transform have been assembled, inverse_transform the y_t back to its original state:
+    y = le.inverse_transform(y_transform)
+
+    # finally, shuffle both and return
+    output_order = random_state.shuffle(np.arange(X.shape[0]))
 
     if return_encoders:
-        return output, encoders
-    return output
+        return X[output_order, :], y[output_order], encoders
+    return X[output_order, :], y[output_order]

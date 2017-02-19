@@ -24,4 +24,4 @@ else:
         'balance'
     ]
 
-    from .balance import balance
+    from .balance import smite_balance
