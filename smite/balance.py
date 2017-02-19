@@ -15,9 +15,6 @@ from sklearn.base import BaseEstimator
 from sklearn.externals import six
 
 # we have to import from the backend first. Weird design...
-from sknn.backend.lasagne.mlp import *
-from sknn.ae import AutoEncoder, Layer
-from sknn import mlp
 import numpy as np
 
 __all__ = [

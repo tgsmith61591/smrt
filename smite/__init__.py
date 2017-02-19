@@ -21,7 +21,10 @@ if __SMITE_SETUP__:
     sys.stderr.write('Partial import of SMITE during the build process.' + os.linesep)
 else:
     __all__ = [
+        'autoencode.py',
         'balance'
     ]
 
+    # top-level imports
     from .balance import smite_balance
+    from .autoencode import AutoEncoder
