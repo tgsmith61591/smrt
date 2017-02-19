@@ -52,7 +52,7 @@ if [[ "$DISTRIB" == "conda" ]]; then
     fi
 
     pip install scikit-learn==$SCIKIT_LEARN_VERSION
-    pip install scikit-neuralnetwork  # this should also install Lasagne and Theano
+    pip install Theano
     pip install coveralls
 
     # Install nose-timer via pip
