@@ -182,11 +182,7 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
         self.display_step = display_step
         self.seed = seed
 
-    def fit(self, X, y=None, **fit_params):
-        self.fit_transform(X, y, **fit_params)
-        return self
-
-    def fit_transform(self, X, y=None, **kwargs):
+    def fit(self, X, y=None, **kwargs):
         # validate X, then make it into TF structure
         X_original = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True)
         n_samples, n_features = X_original.shape
@@ -311,4 +307,6 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
         return self._apply_transformation_steps(X, *(self._decode,))
 
     def encode_and_reconstruct(self, X):
+        # why don't we just call self.inverse_transform(self.transform(X))?
+        # because it will duplicate the X array TWICE and that might be expensive
         return self._apply_transformation_steps(X, *(self._encode, self._decode))
