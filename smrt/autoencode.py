@@ -69,19 +69,29 @@ def _weights_biases_from_hidden(n_hidden, n_features, compression, seed):
     encode_dimensions = list(zip(n_hidden[:-1], n_hidden[1:]))
     decode_dimensions = [(v, k) for k, v in reversed(encode_dimensions)]  # pyramid back to n_features
 
-    weights, biases = {'encode': {}, 'decode': {}}, {'encode': {}, 'decode': {}}
+    # both weights and biases are dicts with two keys (stages):
+    #   * encode: learn the compressed feature space
+    #   * decode: re-map the compressed feature space to the original space
+    weights, biases = {'encode': {}, 'decode': {}}, \
+                      {'encode': {}, 'decode': {}}
+
     for i, t in enumerate(encode_dimensions):
         enc_a, enc_b = t
         dec_a, dec_b = decode_dimensions[i]
 
+        # tensorflow random variable generation will generate all the same matrices if the seed is the same...
+        # let's still find a way to keep predictability (for testing) but also maximize shuffle:
+        s1, s2 = seed ^ i, seed * i
+        s3, s4 = int(17 * (s1 ** 2) / 31), int(s2 ** 2 / 19 + 43)
+
         # initialize weights for encode/decode layer. While the encode layeres progress through the
         # zipped dimensions, the decode layer steps back up to eventually mapping back to the input space
-        weights['encode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[enc_a, enc_b], seed=seed))
-        weights['decode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[dec_a, dec_b], seed=seed))
+        weights['encode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[enc_a, enc_b], seed=s1))
+        weights['decode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[dec_a, dec_b], seed=s2))
 
         # the dimensions of the bias vectors are equivalent to the [1] index of the tuple
-        biases['encode']['b%i' % i] = tf.Variable(tf.random_normal(shape=[enc_b], seed=seed))
-        biases['decode']['b%i' % i] = tf.Variable(tf.random_normal(shape=[dec_b], seed=seed))
+        biases['encode']['b%i' % i] = tf.Variable(tf.random_normal(shape=[enc_b], seed=s3))
+        biases['decode']['b%i' % i] = tf.Variable(tf.random_normal(shape=[dec_b], seed=s4))
 
     return weights, biases
 
@@ -104,13 +114,13 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
         The activation function. If a str, it should be one of PERMITTED_ACTIVATIONS. If a
         callable, it should be an activation function contained in the ``tensorflow.nn`` module.
 
-    learning_rate : float, optional (default=0.01)
+    learning_rate : float, optional (default=0.05)
         The algorithm learning rate.
 
     n_epochs : int, optional (default=20)
         An epoch is one forward pass and one backward pass of *all* training examples. ``n_epochs``,
         then, is the number of full passes over the training data. The algorithm will stop early if
-        the cost delta between iterations diminishes below ``eps`` between epochs.
+        the cost delta between iterations diminishes below ``min_change`` between epochs.
 
     batch_size : int, optional (default=256)
         The number of training examples in a single forward/backward pass. As ``batch_size``
@@ -129,15 +139,15 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
         layer of ``compression_ratio * n_features`` in order to force the network to learn a compressed
         feature space. Default ``compression_ratio`` is 0.6.
 
-    eps : float, optional (default=0.001)
+    min_change : float, optional (default=1e-6)
         An early stopping criterion. If the delta between the last cost and the new cost
-        is less than ``eps``, the network will stop fitting early.
+        is less than ``min_change``, the network will stop fitting early.
 
     verbose : int, optional (default=0)
         The level of verbosity. If 0, no stdout will be produced. Varying levels of
         output will increase with an increasing value of ``verbose``.
 
-    display_step : int, optional (default=1)
+    display_step : int, optional (default=5)
         The interval of epochs at which to update the user if ``verbose`` mode is enabled.
 
     seed : int, optional (default=42)
@@ -169,18 +179,38 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
         recognition." Proceedings of the IEEE, 86(11):2278-2324, November 1998.
     """
 
-    def __init__(self, activation_function='relu', learning_rate=0.01, n_epochs=20, batch_size=256,
-                 n_hidden=None, compression_ratio=0.6, eps=0.001, verbose=0, display_step=1, seed=42):
+    def __init__(self, activation_function='relu', learning_rate=0.05, n_epochs=200, batch_size=256,
+                 n_hidden=None, compression_ratio=0.6, min_change=1e-6, verbose=0, display_step=5, seed=42):
         self.activation_function = activation_function
         self.learning_rate = learning_rate
         self.n_epochs = n_epochs
         self.batch_size = batch_size
         self.n_hidden = n_hidden
         self.compression_ratio = compression_ratio
-        self.eps = eps
+        self.min_change = min_change
         self.verbose = verbose
         self.display_step = display_step
         self.seed = seed
+
+    @property
+    def weights(self):
+        if not hasattr(self, 'w_'):
+            return None
+
+        init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            sess.run(init)
+            return sess.run(self.w_)
+
+    @property
+    def biases(self):
+        if not hasattr(self, 'b_'):
+            return None
+
+        init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            sess.run(init)
+            return sess.run(self.b_)
 
     def fit(self, X, y=None, **kwargs):
         # validate X, then make it into TF structure
@@ -192,11 +222,12 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
 
         # validate floats and other params...
         self.compression_ratio = _validate_float(self, 'compression_ratio')
-        self.eps = _validate_float(self, 'eps')
+        self.min_change = _validate_float(self, 'min_change')
         self.learning_rate = _validate_float(self, 'learning_rate')
         self.seed = _validate_positive_integer(self, 'seed')
         self.verbose = _validate_positive_integer(self, 'verbose')
         self.display_step = _validate_positive_integer(self, 'display_step')
+        self.n_epochs = _validate_positive_integer(self, 'n_epochs')
 
         # validate activation, set it:
         if isinstance(self.activation_function, six.string_types):
@@ -206,36 +237,43 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
         # if it's a callable just let it pass
         elif not hasattr(self.activation_function, '__call__'):
             raise ValueError('Activation function must be a string or a callable')
+        activation = self.activation_function  # make it local
 
         # set up our weight matrix. This needs to be re-initialized for every fit, since (like sklearn)
         # we want to allow for model/transformer re-fits. IF we don't reinitialize, the next input
         # either gets a warm-start or a potentially already grand-mothered weight matrix.
-        self.w_, self.b_ = _weights_biases_from_hidden(self.n_hidden, n_features, self.compression_ratio, self.seed)
+        weights, biases = _weights_biases_from_hidden(self.n_hidden, n_features, self.compression_ratio, self.seed)
 
         # actually fit the model, now
-        encode_op = self._encode(X)
-        decode_op = self._decode(encode_op)
-        y_true, y_pred = X, decode_op
+        args = (activation, weights, biases)
+        encode = AutoEncoder._encode(X, *args)
+        decode = AutoEncoder._decode(encode, *args)
+        y_true, y_pred = X, decode
 
         # get loss and optimizer, minimize MSE
-        cost = tf.reduce_mean(tf.pow(y_true - y_pred, 2))
-        optimizer = tf.train.RMSPropOptimizer(self.learning_rate).minimize(cost)
+        cost_function = tf.reduce_mean(tf.pow(y_true - y_pred, 2))
+        optimizer = tf.train.RMSPropOptimizer(self.learning_rate).minimize(cost_function)
 
-        # initialize global vars for tf, then run it
+        # initialize global vars for tf
         init = tf.global_variables_initializer()
+
+        # run the training session
         with tf.Session() as sess:
             sess.run(init)
-            batches = gen_batches(n_samples, self.batch_size)
             epoch_times = []
             last_cost = None
 
-            # training cycle:
+            # training cycle. For each epoch, generate the batches in a generator
+            # from sklearn (so we don't store it in memory). We have to re-gen since
+            # the generator will be empty by the end of the epoch
             for epoch in range(self.n_epochs):
+                # this needs to be re-done for each epoch, since it's a generator
+                batches = gen_batches(n_samples, self.batch_size)
                 start_time = time.time()
 
                 # loop batches
                 for batch in batches:
-                    _, c = sess.run([optimizer, cost], feed_dict={X: X_original[batch, :]})
+                    _, c = sess.run([optimizer, cost_function], feed_dict={X: X_original[batch, :]})
 
                 # add the time to the times array to compute average later
                 epoch_time = time.time() - start_time
@@ -243,30 +281,38 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
 
                 # Display logs if display_step and verbose
                 if epoch % self.display_step == 0 and self.verbose:
-                    print('Epoch: %i, cost=%.4f, time=%.3f (sec)' % (epoch + 1, c, epoch_time))
+                    print('Epoch: %i, cost=%.6f, time=%.4f (sec)' % (epoch + 1, c, epoch_time))
 
-                # update cost
+                # update last_cost, and if it meets the stopping criteria, break
                 if last_cost is None:
                     last_cost = c
                 else:
                     delta = abs(last_cost - c)
-                    if delta < self.eps:
+                    if delta <= self.min_change:
                         if self.verbose:
                             print('Convergence reached at epoch %i, stopping early' % epoch)
                         break
 
+        # assign fit vars
+        # self.w_, self.b_ = weights, biases
+        self.encoder_, self.decoder_ = encode, decode
+
         if self.verbose > 1:
-            print('Optimization complete. Average epoch time: %.4f seconds' % (np.average(epoch_times)))
+            print('Optimization complete after %i epoch(s). Average epoch time: %.4f seconds'
+                  % (len(epoch_times), np.average(epoch_times)))
         return self
 
-    def _encode(self, X):
-        return self._encode_decode_from_stages(X, 'encode')
+    @staticmethod
+    def _encode(X, activation, weights, biases):
+        return AutoEncoder._encode_decode_from_stages(X, activation, weights, biases, 'encode')
 
-    def _decode(self, X):
-        return self._encode_decode_from_stages(X, 'decode')
+    @staticmethod
+    def _decode(X, activation, weights, biases):
+        return AutoEncoder._encode_decode_from_stages(X, activation, weights, biases, 'decode')
 
-    def _encode_decode_from_stages(self, X, key):
-        w, b = self.w_[key], self.b_[key]
+    @staticmethod
+    def _encode_decode_from_stages(X, activation, weights, biases, key):
+        w, b = weights[key], biases[key]
         plan = zip(sorted(w.keys()), sorted(b.keys()))  # key is either 'encode' or 'decode'
 
         next_layer = None
@@ -276,7 +322,7 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
 
             # if it's the first hidden layer, the input tensor is X, otherwise the last layer
             tensor = X if next_layer is None else next_layer
-            next_layer = self.activation_function(tf.add(tf.matmul(tensor, weights), biases))
+            next_layer = activation(tf.add(tf.matmul(tensor, weights), biases))
 
         return next_layer
 
@@ -289,24 +335,25 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
         init = tf.global_variables_initializer()
         with tf.Session() as sess:
             sess.run(init)
+            args = (self.activation_function, self.w_, self.b_)
 
             # do the steps all in one batch, because scoring is cheap:
             result = None
             for step in steps:
                 if result is None:
-                    result = step(X)
+                    result = step(X, *args)
                 else:
-                    result = step(result)
+                    result = step(result, *args)
 
             return sess.run(result, feed_dict={X: X_orig})
 
     def transform(self, X):
-        return self._apply_transformation_steps(X, *(self._encode,))
+        return self._apply_transformation_steps(X, *(AutoEncoder._encode,))
 
     def inverse_transform(self, X):
-        return self._apply_transformation_steps(X, *(self._decode,))
+        return self._apply_transformation_steps(X, *(AutoEncoder._decode,))
 
     def encode_and_reconstruct(self, X):
         # why don't we just call self.inverse_transform(self.transform(X))?
         # because it will duplicate the X array TWICE and that might be expensive
-        return self._apply_transformation_steps(X, *(self._encode, self._decode))
+        return self._apply_transformation_steps(X, *(AutoEncoder._encode, AutoEncoder._decode))

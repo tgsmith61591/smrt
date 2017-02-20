@@ -4,19 +4,21 @@
 ![Supported versions](https://img.shields.io/badge/python-3.5-blue.svg) 
 
 
-# SMRT
-([Original reference (enable audio)](https://www.youtube.com/watch?v=tcGQpjCztgA))
-
-##Synthetic Minority Reconstruction Technique
+# Synthetic Minority Reconstruction Technique (SMRT)
 *Handle your class imbalance more intelligently by using SMOTE's younger, more sophisticated cousin*
 
 
 ### Installation
 
-Installation is easy. After cloning the project onto your machine and installing the required dependencies, simply use the `setup.py` file:
+Installation is easy. After cloning the project onto your machine and installing the required dependencies,
+simply use the `setup.py` file:
 
 ```bash
 $ git clone https://github.com/tgsmith61591/smrt.git
 $ cd smrt
 $ python setup.py install
 ```
+
+### Notes
+
+See the [original reference](https://www.youtube.com/watch?v=tcGQpjCztgA) for S-M-R-T (enable audio)
