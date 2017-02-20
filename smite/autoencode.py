@@ -28,10 +28,6 @@ PERMITTED_ACTIVATIONS = {
 }
 
 
-def _X_to_tf(X):
-    return tf.Variable(check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True))
-
-
 def _validate_positive_integer(instance, name):
     val = getattr(instance, name)
     try:
@@ -60,43 +56,32 @@ def _weights_biases_from_hidden(n_hidden, n_features, compression, seed):
     if n_hidden is None:
         n_hidden = max(1, int(compression * n_features))
 
-    if not isinstance(n_hidden, (list, tuple)):
+    if not isinstance(n_hidden, list):
         if not isinstance(n_hidden, (long, int, np.int)):
-            raise ValueError('n_hidden must be an int, tuple or list')
+            raise ValueError('n_hidden must be an int or list')
+        n_hidden = [n_hidden]
 
-        # it's an int
-        weights = {
-            'encode': {'h0': tf.Variable(tf.random_normal(shape=[n_features, n_hidden], seed=seed))},
-            'decode': {'h0': tf.Variable(tf.random_normal(shape=[n_hidden, n_features], seed=seed))}
-        }
+    # otherwise it's iterable. There will be two times as many layers as the length of n_hidden:
+    # n_hidden * encode layer, and n_hidden * decode layer. Since the dimensions are
+    # piped into one another, stagger them (zipped with a lag), and then reverse for
+    # the decode layer. First, though, append n_features to n_hidden
+    n_hidden.insert(0, n_features)
+    encode_dimensions = list(zip(n_hidden[:-1], n_hidden[1:]))
+    decode_dimensions = [(v, k) for k, v in reversed(encode_dimensions)]  # pyramid back to n_features
 
-        biases = {
-            'encode': {'b0': tf.Variable(tf.random_normal(shape=[n_hidden], seed=seed))},
-            'decode': {'b0': tf.Variable(tf.random_normal(shape=[n_features], seed=seed))}
-        }
-    else:
-        # it's iterable. There will be two times as many layers as the length of n_hidden:
-        # n_hidden * encode layer, and n_hidden * decode layer. Since the dimensions are
-        # piped into one another, stagger them (zipped with a lag), and then reverse for
-        # the decode layer. First, though, append n_features to n_hidden
-        n_hidden.insert(0, n_features)
+    weights, biases = {'encode': {}, 'decode': {}}, {'encode': {}, 'decode': {}}
+    for i, t in enumerate(encode_dimensions):
+        enc_a, enc_b = t
+        dec_a, dec_b = decode_dimensions[i]
 
-        encode_dimensions = list(zip(n_hidden[:-1], n_hidden[1:]))
-        decode_dimensions = [(v, k) for k, v in reversed(encode_dimensions)]  # pyramid back to n_features
+        # initialize weights for encode/decode layer. While the encode layeres progress through the
+        # zipped dimensions, the decode layer steps back up to eventually mapping back to the input space
+        weights['encode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[enc_a, enc_b], seed=seed))
+        weights['decode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[dec_a, dec_b], seed=seed))
 
-        weights, biases = {'encode': {}, 'decode': {}}, {'encode': {}, 'decode': {}}
-        for i, t in enumerate(encode_dimensions):
-            enc_a, enc_b = t
-            dec_a, dec_b = decode_dimensions[i]
-
-            # initialize weights for encode/decode layer. While the encode layeres progress through the
-            # zipped dimensions, the decode layer steps back up to eventually mapping back to the input space
-            weights['encode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[enc_a, enc_b], seed=seed))
-            weights['decode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[dec_a, dec_b], seed=seed))
-
-            # the dimensions of the bias vectors are equivalent to the [1] index of the tuple
-            biases['encode']['b%i' % i] = tf.Variable(tf.random_normal(shape=[enc_b], seed=seed))
-            biases['decode']['b%i' % i] = tf.Variable(tf.random_normal(shape=[dec_b], seed=seed))
+        # the dimensions of the bias vectors are equivalent to the [1] index of the tuple
+        biases['encode']['b%i' % i] = tf.Variable(tf.random_normal(shape=[enc_b], seed=seed))
+        biases['decode']['b%i' % i] = tf.Variable(tf.random_normal(shape=[dec_b], seed=seed))
 
     return weights, biases
 
