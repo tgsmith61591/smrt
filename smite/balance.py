@@ -381,15 +381,15 @@ def smite_balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, e
                 encoders[label] = encoder
 
             # transform X_sub, rank it
-            reconstructed = encoder.transform(X_sub)
+            reconstructed = encoder.encode_and_reconstruct(X_sub)
             mse = np.asarray([
                 mean_squared_error(X_sub[i, :], reconstructed[i, :]) 
                 for i in range(X_sub.shape[0])
             ])
 
             # rank order:
-            ordered = X_sub[np.argsort(mse), :]  # order ascending by reconstruction error
-            sample_count = target_count - X_sub.shape[0]
+            ordered = X_sub[np.argsort(mse), :]  # order asc by reconstr error  # todo, use X_sub or reconstructed?
+            sample_count = target_count - X_sub.shape[0]  # todo: redo this--pull a subset of these..
             sample = ordered[:sample_count]  # the interpolation sample
 
             # jitter the sample. We create a random matrix, M x N, (bound in [0, 1]),
@@ -398,14 +398,14 @@ def smite_balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, e
             sample += (eps * (sample.std(axis=0) * (random_state.rand(*sample.shape) - 0.5)))
 
             # transform the sample batch, and the output is the interpolated minority sample
-            interpolated = encoder.transform(sample)
+            # interpolated = encoder.transform(sample)
 
             # append to X, y
-            X = X.vstack(X, interpolated)
-            y_transform = np.concatenate([y_transform, np.ones(interpolated.shape[0]) * transformed_label])
+            X = X.vstack(X, sample)  # was `interpolated` instead of sample, before
+            y_transform = np.concatenate([y_transform, np.ones(sample.shape[0]) * transformed_label])
 
             # determine whether we need to recurse for this class (if there were too few samples)
-            if interpolated.shape[0] + X_sub.shape[0] >= target_count:
+            if sample.shape[0] + X_sub.shape[0] >= target_count:
                 break
 
     # now that X, y_transform have been assembled, inverse_transform the y_t back to its original state:
