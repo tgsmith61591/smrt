@@ -86,8 +86,8 @@ def _weights_biases_from_hidden(n_hidden, n_features, compression, seed):
 
         # initialize weights for encode/decode layer. While the encode layeres progress through the
         # zipped dimensions, the decode layer steps back up to eventually mapping back to the input space
-        weights['encode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[enc_a, enc_b], seed=s1))
-        weights['decode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[dec_a, dec_b], seed=s2))
+        weights['encode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[enc_a, enc_b], seed=s1), name='w')
+        weights['decode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[dec_a, dec_b], seed=s2), name='b')
 
         # the dimensions of the bias vectors are equivalent to the [1] index of the tuple
         biases['encode']['b%i' % i] = tf.Variable(tf.random_normal(shape=[enc_b], seed=s3))
@@ -263,11 +263,15 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
             epoch_times = []
             last_cost = None
 
+            # print(sess.run(weights)['encode']['h0'])
+
             # training cycle. For each epoch, generate the batches in a generator
             # from sklearn (so we don't store it in memory). We have to re-gen since
             # the generator will be empty by the end of the epoch
             for epoch in range(self.n_epochs):
-                # this needs to be re-done for each epoch, since it's a generator
+
+                # this needs to be re-done for each epoch, since it's a generator and will
+                # otherwise be exhausted after the first epoch...
                 batches = gen_batches(n_samples, self.batch_size)
                 start_time = time.time()
 
@@ -294,8 +298,8 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
                         break
 
         # assign fit vars
-        # self.w_, self.b_ = weights, biases
-        self.encoder_, self.decoder_ = encode, decode
+        self.w_, self.b_ = weights, biases
+        # self.encoder_, self.decoder_ = encode, decode
 
         if self.verbose > 1:
             print('Optimization complete after %i epoch(s). Average epoch time: %.4f seconds'
