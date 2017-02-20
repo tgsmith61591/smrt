@@ -11,82 +11,17 @@ from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils.multiclass import type_of_target
 from sklearn.utils.validation import check_array
-from sklearn.base import BaseEstimator
 from sklearn.externals import six
 
 # we have to import from the backend first. Weird design...
 import numpy as np
 
 __all__ = [
-    'smite_balance',
-    'LayerParameters'
+    'smite_balance'
 ]
 
 MAX_N_CLASSES = 100  # max unique classes in y
 MIN_N_SAMPLES = 2  # min n_samples per class in y
-
-
-class LayerParameters(BaseEstimator):
-    """A wrapper class for the ``sknn.ae.Layer`` class. ``sknn`` expects
-    a list of ``Layer`` instances, but these are mutable and are tied to the underlying
-    weight matrix. Since the ``balance`` function will fit many encoders, the ``layers``
-    parameter should not allow mutability. Thus, this class defines a template for the
-    instantiation of new layers given a set of parameters.
-
-    Parameters
-    ----------
-    activation : str, optional (default='Sigmoid')
-        Select which activation function this layer should use, as a string.
-        The possible activation functions for the ``sknn.ae.AutoEncoder`` are:
-
-            * ``'Sigmoid'``
-            * ``'Tanh'``
-
-        Note that the ``'Rectifier'`` is not currently supported.
-
-    layer_type : str, optional (default='autoencoder')
-        The type of encoding and decoding layer to use, specifically ``denoising`` for randomly
-        corrupting data, and a more traditional ``autoencoder`` which is used by default.
-
-    name : str, optional (default=None)
-        You optionally can specify a name for this layer, and its parameters
-        will then be accessible to scikit-learn via a nested sub-object.  For example,
-        if name is set to ``layer1``, then the parameter ``layer1__units`` from the network
-        is bound to this layer's ``units`` variable. The name defaults to ``hiddenN`` where N 
-        is the integer index of that layer, and the final layer is always ``output`` without 
-        an index.
-
-    units: int, optional (default=None)
-        The number of units (also known as neurons) in this layer.
-
-    cost: string, optional (default='msre')
-        What type of cost function to use during the layerwise pre-training.  This can be either
-        ``'msre'`` for mean-squared reconstruction error (default), and ``'mbce'`` for mean binary
-        cross entropy.
-
-    tied_weights: bool, optional (default=True)
-        Whether to use the same weights for the encoding and decoding phases of the simulation
-        and training.  Default is ``True``.
-
-    corruption_level: float, optional (default=0.5)
-        The ratio of inputs to corrupt in this layer; ``0.25`` means that 25% of the inputs will be
-        corrupted during the training.  The default is ``0.5``.
-    """
-    def __init__(self, activation='Sigmoid', layer_type='autoencoder', name=None, units=None,
-                 cost='msre', tied_weights=True, corruption_level=0.5):
-        self.activation = activation.title()  # sknn dev likes his leading capitals...
-        self.layer_type = layer_type
-        self.name = name
-        self.units = units
-        self.cost = cost  # don't make lower, since lower should be expected
-        self.tied_weights = tied_weights
-        self.corruption_level = corruption_level
-
-    def build_new(self):
-        """Construct a new ``sknn.ae.Layer`` instance from the class parameters."""
-        return Layer(activation=self.activation, type=self.layer_type, name=self.name,
-                     units=self.units, cost=self.cost, tied_weights=self.tied_weights,
-                     corruption_level=self.corruption_level, warning=None)  # he has this weird arg in there...
 
 
 def _validate_layers(layers):
@@ -100,7 +35,7 @@ def _validate_ratios(ratio, name):
                          % (name, ratio))
 
 
-def smite_balance(X, y, layers=None, return_encoders=False, balance_ratio=0.2, eps=1.0, random_state=None,
+def smite_balance(X, y, return_encoders=False, balance_ratio=0.2, eps=1.0, random_state=None,
                   parameters=None, learning_rule='sgd', learning_rate=0.01, learning_momentum=0.9, batch_size=1, 
                   n_iter=None, n_stable=10, f_stable=0.001, valid_set=None, valid_size=0.0, normalize=None, regularize=None, 
                   weight_decay=None, dropout_rate=None, loss_type=None, callback=None, debug=False, verbose=None, 
