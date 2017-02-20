@@ -4,8 +4,11 @@
 ![Supported versions](https://img.shields.io/badge/python-3.5-blue.svg) 
 
 
-# Synthetic Minority Interpolation TEchnique
-*SMOTE's younger, more sophisticated cousin*
+# SMRT
+([Original reference (enable audio)](https://www.youtube.com/watch?v=tcGQpjCztgA))
+
+##Synthetic Minority Reconstruction Technique
+*Handle your class imbalance more intelligently by using SMOTE's younger, more sophisticated cousin*
 
 
 ### Installation
@@ -13,7 +16,7 @@
 Installation is easy. After cloning the project onto your machine and installing the required dependencies, simply use the `setup.py` file:
 
 ```bash
-$ git clone https://github.com/tgsmith61591/smite.git
-$ cd smite
+$ git clone https://github.com/tgsmith61591/smrt.git
+$ cd smrt
 $ python setup.py install
 ```

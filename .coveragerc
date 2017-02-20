@@ -1,5 +1,5 @@
 [run]
-source = smite
+source = smrt
 omit =
     */python?.?/*
     */lib-python/?.?/*.py

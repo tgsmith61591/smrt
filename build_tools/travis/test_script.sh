@@ -22,9 +22,9 @@ run_tests() {
     cd $TEST_DIR
 
     if [[ "$COVERAGE" == "true" ]]; then
-        nosetests -s --with-coverage --with-timer --timer-top-n 20 smite
+        nosetests -s --with-coverage --with-timer --timer-top-n 20 smrt
     else
-        nosetests -s --with-timer --timer-top-n 20 smite
+        nosetests -s --with-timer --timer-top-n 20 smrt
     fi
 
 }

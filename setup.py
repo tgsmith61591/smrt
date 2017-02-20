@@ -2,12 +2,11 @@
 #
 # Author: Taylor Smith <taylor.smith@alkaline-ml.com>
 #
-# Setup the SMITE module
+# Setup the SMRT module
 
 from __future__ import print_function, absolute_import, division
 from distutils.command.clean import clean
 from setuptools import setup
-import numpy as np
 import os
 import sys
 
@@ -17,12 +16,12 @@ else:
     import builtins
 
 # Hacky, adopted from sklearn. This sets a global variable
-# so smite __init__ can detect if it's being loaded in the setup
+# so smrt __init__ can detect if it's being loaded in the setup
 # routine, so it won't load submodules that haven't yet been built.
-builtins.__SMITE_SETUP__ = True
+builtins.__SMRT_SETUP__ = True
 
 # metadata
-DISTNAME = 'smite'
+DISTNAME = 'smrt'
 DESCRIPTION = 'Handle class imbalance intelligently by using autoencoders ' \
               'to generate synthetic observations of your minority class.'
 
@@ -31,8 +30,8 @@ MAINTAINER_EMAIL = 'taylor.smith@alkaline-ml.com'
 LICENSE = 'new BSD'
 
 # import restricted version
-import smite
-VERSION = smite.__version__
+import smrt
+VERSION = smrt.__version__
 
 # get the installation requirements:
 with open('requirements.txt') as req:
@@ -43,7 +42,7 @@ with open('requirements.txt') as req:
 class CleanCommand(clean):
     description = "Remove build artifacts from the source tree"
 
-    # this is mostly in case we ever add a Cython module to SMITE
+    # this is mostly in case we ever add a Cython module to SMRT
     def run(self):
         clean.run(self)
         # Remove c files if we are not within a sdist package
@@ -97,7 +96,7 @@ configuration = dict(name=DISTNAME,
                                   'Operating System :: MacOS',
                                   'Programming Language :: Python :: 2.7'
                                  ],
-                     keywords='sklearn scikit-learn sknn scikit-neuralnetwork auto-encoders class-imbalance',
+                     keywords='sklearn scikit-learn tensorflow scikit-neuralnetwork auto-encoders class-imbalance',
                      packages=[DISTNAME],
                      install_requires=REQUIREMENTS,
                      cmdclass=cmdclass)

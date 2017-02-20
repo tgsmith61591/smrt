@@ -2,7 +2,7 @@
 #
 # Author: Taylor Smith <taylor.smith@alkaline-ml.com>
 #
-# The SMITE balancer
+# The SMRT balancer
 
 from __future__ import division, absolute_import, division
 from numpy.random import RandomState
@@ -17,16 +17,11 @@ from sklearn.externals import six
 import numpy as np
 
 __all__ = [
-    'smite_balance'
+    'smrt_balance'
 ]
 
 MAX_N_CLASSES = 100  # max unique classes in y
 MIN_N_SAMPLES = 2  # min n_samples per class in y
-
-
-def _validate_layers(layers):
-    if not all(isinstance(x, LayerParameters) for x in layers):
-        raise ValueError('layers should be a list, tuple or dict of smite.balance.LayerParameters')
 
 
 def _validate_ratios(ratio, name):
@@ -35,21 +30,21 @@ def _validate_ratios(ratio, name):
                          % (name, ratio))
 
 
-def smite_balance(X, y, return_encoders=False, balance_ratio=0.2, eps=1.0, random_state=None,
-                  parameters=None, learning_rule='sgd', learning_rate=0.01, learning_momentum=0.9, batch_size=1, 
-                  n_iter=None, n_stable=10, f_stable=0.001, valid_set=None, valid_size=0.0, normalize=None, regularize=None, 
-                  weight_decay=None, dropout_rate=None, loss_type=None, callback=None, debug=False, verbose=None, 
-                  **auto_encoder_params):
-    """SMITE (Sythetic Minority Interpolation TEchnique) is the younger, more sophisticated cousin to
-    SMOTE (Synthetic Minority Oversampling TEchnique). Using auto-encoders, SMITE learns the parameters 
+def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, eps=1.0, random_state=None,
+                 parameters=None, learning_rule='sgd', learning_rate=0.01, learning_momentum=0.9, batch_size=1,
+                 n_iter=None, n_stable=10, f_stable=0.001, valid_set=None, valid_size=0.0, normalize=None, regularize=None,
+                 weight_decay=None, dropout_rate=None, loss_type=None, callback=None, debug=False, verbose=None,
+                 **auto_encoder_params):
+    """SMRT (Sythetic Minority Reconstruction Technique) is the younger, more sophisticated cousin to
+    SMOTE (Synthetic Minority Oversampling TEchnique). Using auto-encoders, SMRT learns the parameters
     that best reconstruct the observations in each minority class, and then generates synthetic observations
     until the minority class is represented at a minimum of ``balance_ratio`` * majority_class_size. 
 
-    SMITE avoids one of SMOTE's greatest risks: In SMOTE, when drawing random observations from whose k-nearest 
+    SMRT avoids one of SMOTE's greatest risks: In SMOTE, when drawing random observations from whose k-nearest
     neighbors to reconstruct, the possibility exists that a "border point," or an observation very close to 
     the decision boundary may be selected. This could result in the synthetically-generated observations lying 
     too close to the decision boundary for reliable classification, and could lead to the degraded performance
-    of an estimator. SMITE avoids this risk, by ranking observations according to their reconstruction MSE, and
+    of an estimator. SMRT avoids this risk, by ranking observations according to their reconstruction MSE, and
     drawing samples to reconstruct from the lowest-MSE observations (i.e., the most "phenotypical" of a class).
     
     Parameters
@@ -233,14 +228,14 @@ def smite_balance(X, y, return_encoders=False, balance_ratio=0.2, eps=1.0, rando
     y_type = type_of_target(y)
     supported_types = {'multiclass', 'binary'}
     if y_type not in supported_types:
-        raise ValueError('SMITE balancer only supports %r, but got %r' % (supported_types, y_type))
+        raise ValueError('SMRT balancer only supports %r, but got %r' % (supported_types, y_type))
 
     present_classes, counts = np.unique(y, return_counts=True)
     n_classes = len(present_classes)
 
     # ensure <= MAX_N_CLASSES
     if n_classes > MAX_N_CLASSES:
-        raise ValueError('SMITE balancer currently only supports a maximum of %i '
+        raise ValueError('SMRT balancer currently only supports a maximum of %i '
                          'unique class labels, but %i were identified.' % (MAX_N_CLASSES, n_classes))
 
     # check layers:
