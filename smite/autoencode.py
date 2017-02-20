@@ -120,14 +120,29 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
         callable, it should be an activation function contained in the ``tensorflow.nn`` module.
 
     learning_rate : float, optional (default=0.01)
+        The algorithm learning rate.
 
     n_epochs : int, optional (default=20)
+        An epoch is one forward pass and one backward pass of *all* training examples. ``n_epochs``,
+        then, is the number of full passes over the training data. The algorithm will stop early if
+        the cost delta between iterations diminishes below ``eps`` between epochs.
 
     batch_size : int, optional (default=256)
+        The number of training examples in a single forward/backward pass. As ``batch_size``
+        increases, the memory required will also increase.
 
     n_hidden : int, list or tuple, optional (default=None)
+        The hidden layer structure. If an int is provided, a single hidden layer is constructed,
+        with ``n_hidden`` neurons. If ``n_hidden`` is an iterable, ``len(n_hidden)`` hidden layers
+        are constructed, with as many neurons as correspond to each index, respectively. If no
+        value is passed for ``n_hidden`` (default), the ``AutoEncoder`` defaults to a single hidden
+        layer of ``compression_ratio * n_features`` in order to force the network to learn a compressed
+        feature space.
 
     compression_ratio : float, optional (default=0.6)
+        If no value is passed for ``n_hidden`` (default), the ``AutoEncoder`` defaults to a single hidden
+        layer of ``compression_ratio * n_features`` in order to force the network to learn a compressed
+        feature space. Default ``compression_ratio`` is 0.6.
 
     eps : float, optional (default=0.001)
         An early stopping criterion. If the delta between the last cost and the new cost
