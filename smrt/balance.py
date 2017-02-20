@@ -5,13 +5,13 @@
 # The SMRT balancer
 
 from __future__ import division, absolute_import, division
-from numpy.random import RandomState
 from sklearn.utils import column_or_1d
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils.multiclass import type_of_target
 from sklearn.utils.validation import check_array
-from sklearn.externals import six
+from .autoencode import AutoEncoder
+from .utils import get_random_state
 
 # we have to import from the backend first. Weird design...
 import numpy as np
@@ -30,11 +30,9 @@ def _validate_ratios(ratio, name):
                          % (name, ratio))
 
 
-def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, eps=1.0, random_state=None,
-                 parameters=None, learning_rule='sgd', learning_rate=0.01, learning_momentum=0.9, batch_size=1,
-                 n_iter=None, n_stable=10, f_stable=0.001, valid_set=None, valid_size=0.0, normalize=None, regularize=None,
-                 weight_decay=None, dropout_rate=None, loss_type=None, callback=None, debug=False, verbose=None,
-                 **auto_encoder_params):
+def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, jitter=1.0, activation_function='relu',
+                 learning_rate=0.05, n_epochs=200, batch_size=256, n_hidden=None, compression_ratio=0.6,
+                 min_change=1e-6, verbose=0, display_step=5, seed=42):
     """SMRT (Sythetic Minority Reconstruction Technique) is the younger, more sophisticated cousin to
     SMOTE (Synthetic Minority Oversampling TEchnique). Using auto-encoders, SMRT learns the parameters
     that best reconstruct the observations in each minority class, and then generates synthetic observations
@@ -57,13 +55,6 @@ def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, eps=1.0, random
         Training labels as integers, where ``n_samples`` is the number of samples.
         ``n_samples`` should be equal to the ``n_samples`` in ``X``.
 
-    layers : list of :class:``LayerParameters``, optional (default=None)
-        An iterable sequence of ``LayerParameters`` defining the structure of 
-        the hidden layers. If layers is not specifed, the default is to create a single hidden
-        layer with default ``LayerParameters`` args, and with ``0.6 * n_features``. If ``layers``
-        is a dict, the keys must correspond to the class labels. This is how different ``LabelParameters``
-        can be set for different class labels.
-
     return_encoders : bool, optional (default=False)
         Whether or not to return the dictionary of fit ``sknn.ae.AutoEncoder`` instances.
         If True, the return value will be a tuple, with the first index being the balanced
@@ -75,140 +66,59 @@ def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, eps=1.0, random
         The minimum acceptable ratio of $MINORITY_CLASS : $MAJORITY_CLASS representation,
         where 0 < ``ratio`` <= 1
 
-    eps : float, optional (default=1.0)
+    jitter : float, optional (default=1.0)
         A value between 0 and 1. This is used to jitter the sample. We create a random matrix, 
         M x N, (bound in [0, 1]), subtract 0.5 (so there are some negatives), and then multiply
         by ``eps``. Finally, we multiply by the columnar standard deviations, and add to the sample.
         As ``eps`` approaches 1, the jitter is increased; as it approaches 0, it is decreased.
 
-    random_state: int, optional
-        Seed for the initialization of the neural network parameters (e.g.
-        weights and biases).  This is fully deterministic.
+    activation_function : str or callable, optional (default='relu')
+        The activation function. If a str, it should be one of PERMITTED_ACTIVATIONS. If a
+        callable, it should be an activation function contained in the ``tensorflow.nn`` module.
 
-    parameters: list of tuple or array-like, optional (default=None)
-        A list of ``(weights, biases)`` tuples to be reloaded for each layer, in the same
-        order as ``layers`` was specified.  Useful for initializing with pre-trained
-        networks.
+    learning_rate : float, optional (default=0.05)
+        The algorithm learning rate.
 
-    learning_rule: str, optional (default='sgd')
-        Name of the learning rule used during stochastic gradient descent,
-        one of ``sgd``, ``momentum``, ``nesterov``, ``adadelta``, ``adagrad`` or
-        ``rmsprop`` at the moment.  The default is vanilla ``sgd``.
+    n_epochs : int, optional (default=20)
+        An epoch is one forward pass and one backward pass of *all* training examples. ``n_epochs``,
+        then, is the number of full passes over the training data. The algorithm will stop early if
+        the cost delta between iterations diminishes below ``min_change`` between epochs.
 
-    learning_rate: float, optional (default=0.01)
-        Real number indicating the default/starting rate of adjustment for
-        the weights during gradient descent. Different learning rules may
-        take this into account differently. Default is ``0.01``.
+    batch_size : int, optional (default=256)
+        The number of training examples in a single forward/backward pass. As ``batch_size``
+        increases, the memory required will also increase.
 
-    learning_momentum: float, optional (default=0.9)
-        Real number indicating the momentum factor to be used for the
-        learning rule 'momentum'. Default is ``0.9``.
+    n_hidden : int, list or dictionary , optional (default=None)
+        The hidden layer structure. If an int is provided, a single hidden layer is constructed,
+        with ``n_hidden`` neurons. If ``n_hidden`` is an iterable, ``len(n_hidden)`` hidden layers
+        are constructed, with as many neurons as correspond to each index, respectively. If no
+        value is passed for ``n_hidden`` (default), the ``AutoEncoder`` defaults to a single hidden
+        layer of ``compression_ratio * n_features`` in order to force the network to learn a compressed
+        feature space.
 
-    batch_size: int, optional (default=1)
-        Number of training samples to group together when performing stochastic
-        gradient descent (technically, a "minibatch").  By default each sample is
-        treated on its own, with ``batch_size=1``.  Larger batches are usually faster.
+    compression_ratio : float, optional (default=0.6)
+        If no value is passed for ``n_hidden`` (default), the ``AutoEncoder`` defaults to a single hidden
+        layer of ``compression_ratio * n_features`` in order to force the network to learn a compressed
+        feature space. Default ``compression_ratio`` is 0.6.
 
-    n_iter: int, optional (default=None)
-        The number of iterations of gradient descent to perform on the
-        neural network's weights when training with ``fit()``.
+    min_change : float, optional (default=1e-6)
+        An early stopping criterion. If the delta between the last cost and the new cost
+        is less than ``min_change``, the network will stop fitting early.
 
-    n_stable: int, optional (default=10)
-        Number of interations after which training should return when the validation
-        error remains (near) constant.  This is usually a sign that the data has been
-        fitted, or that optimization may have stalled.  If no validation set is specified,
-        then stability is judged based on the training error.  Default is ``10``.
+    verbose : int, optional (default=0)
+        The level of verbosity. If 0, no stdout will be produced. Varying levels of
+        output will increase with an increasing value of ``verbose``.
 
-    f_stable: float, optional (default=0.001)
-        Threshold under which the validation error change is assumed to be stable, to
-        be used in combination with `n_stable`. This is calculated as a relative ratio
-        of improvement, so if the results are only 0.1% better training is considered
-        stable. The training set is used as fallback if there's no validation set. Default
-        is ``0.001`.
+    display_step : int, optional (default=5)
+        The interval of epochs at which to update the user if ``verbose`` mode is enabled.
 
-    valid_set: tuple of array-like, optional (default=None)
-        Validation set (X_v, y_v) to be used explicitly while training.  Both
-        arrays should have the same size for the first dimention, and the second
-        dimention should match with the training data specified in ``fit()``.
-
-    valid_size: float, optional (default=0.0)
-        Ratio of the training data to be used for validation.  0.0 means no
-        validation, and 1.0 would mean there's no training data!  Common values are
-        0.1 or 0.25.
-
-    normalize: string, optional (default=None)
-        Enable normalization for all layers. Can be either `batch` for batch normalization
-        or (soon) `weights` for weight normalization.  Default is no normalization.
-
-    regularize: string, optional (default=None)
-        Which regularization technique to use on the weights, for example ``L2`` (most
-        common) or ``L1`` (quite rare), as well as ``dropout``.  By default, there's no
-        regularization, unless another parameter implies it should be enabled, e.g. if
-        ``weight_decay`` or ``dropout_rate`` are specified.
-
-    weight_decay: float, optional (default=None)
-        The coefficient used to multiply either ``L1`` or ``L2`` equations when computing
-        the weight decay for regularization.  If ``regularize`` is specified, this defaults
-        to 0.0001.
-        
-    dropout_rate: float, optional (default=None)
-        What rate to use for drop-out training in the inputs (jittering) and the
-        hidden layers, for each training example. Specify this as a ratio of inputs
-        to be randomly excluded during training, e.g. 0.75 means only 25% of inputs
-        will be included in the training.
-
-    loss_type: string, optional (default=None)
-        The cost function to use when training the network.  There are several valid options:
-
-            * ``mse`` — Use mean squared error, for learning to predict the mean of the data.
-            * ``mae`` — Use mean average error, for learning to predict the median of the data.
-            * ``mcc`` — Use mean categorical cross-entropy, particularly for classifiers.
-
-        The default option is ``mse`` for regressors and ``mcc`` for classifiers, but ``mae`` can
-        only be applied to layers of type ``Linear`` or ``Gaussian`` and they must be used as
-        the output layer (PyLearn2 only).
-
-    callback: callable or dict, optional (default=None)
-        An observer mechanism that exposes information about the inner training loop. This is
-        either a single function that takes ``cbs(event, **variables)`` as a parameter, or a
-        dictionary of functions indexed by on `event` string that conforms to ``cb(**variables)``.
-        
-        There are multiple events sent from the inner training loop:
-        
-            * ``on_train_start`` — Called when the main training function is entered.
-            * ``on_epoch_start`` — Called the first thing when a new iteration starts.
-            * ``on_batch_start`` — Called before an individual batch is processed.
-            * ``on_batch_finish`` — Called after that individual batch is processed.
-            * ``on_epoch_finish`` — Called the first last when the iteration is done.
-            * ``on_train_finish`` — Called just before the training function exits.
-        
-        For each function, the ``variables`` dictionary passed contains all local variables within
-        the training implementation.
-
-    debug: bool, optional (default=False)
-        Should the underlying training algorithms perform validation on the data
-        as it's optimizing the model?  This makes things slower, but errors can
-        be caught more effectively.  Default is off.
-
-    verbose: bool, optional (default=None)
-        How to initialize the logging to display the results during training. If there is
-        already a logger initialized, either ``sknn`` or the root logger, then this function
-        does nothing.  Otherwise:
-
-            * ``False`` — Setup new logger that shows only warnings and errors.
-            * ``True`` — Setup a new logger that displays all debug messages.
-            * ``None`` — Don't setup a new logger under any condition (default). 
-
-        Using the built-in python ``logging`` module, you can control the detail and style of
-        output by customising the verbosity level and formatter for ``sknn`` logger.
+    seed : int, optional (default=42)
+        An integer. Used to create a random seed for the weight and bias initialization.
     """
     # validate the cheap stuff before copying arrays around...
     _validate_ratios(balance_ratio, 'balance_ratio')
-    _validate_ratios(eps, 'eps')
-
-    # set seed:
-    if random_state is None:
-        random_state = RandomState()  # default random state
+    _validate_ratios(jitter, 'jitter')
+    random_state = get_random_state(seed)
 
     # validate arrays
     X = check_array(X, accept_sparse=False, dtype=np.float32)
@@ -238,23 +148,6 @@ def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, eps=1.0, random
         raise ValueError('SMRT balancer currently only supports a maximum of %i '
                          'unique class labels, but %i were identified.' % (MAX_N_CLASSES, n_classes))
 
-    # check layers:
-    is_dict = False
-    if layers is None:
-        layers = [LayerParameters(units=max(1, 0.6 * n_features))]
-    else:
-        if not isinstance(layers, (list, tuple, dict)):
-            raise TypeError('expected a list, tuple or dict for layers, but got type=%s' % type(layers))
-
-        if isinstance(layers, (tuple, list)):
-            _validate_layers(layers)
-        else:
-            # it's a dict. Assert all keys are in present classes
-            is_dict = True
-            for k, v in six.iteritems(layers):
-                assert k in present_classes, '%r is not a valid class label (seen labels=%r)' % (k, present_classes.tolist())
-                _validate_layers(v)
-
     # get the majority class label, and its count:
     majority_count_idx = np.argmax(counts, axis=0)
     majority_label, majority_count = present_classes[majority_count_idx], counts[majority_count_idx]
@@ -281,22 +174,10 @@ def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, eps=1.0, random
             encoders[label] = None
             continue
 
-        # generate the layers from the template
-        if is_dict:
-            these_layers = [layer.build_new() for layer in layers[label]]  # build layers from dict
-        else:
-            these_layers = [layer.build_new() for layer in layers]  # build layers from list/tuple
-
         # fit the autoencoder
-        encoder = AutoEncoder(layers=these_layers,  # the constructed instances
-                              random_state=random_state, parameters=parameters, learning_rule=learning_rule,
-                              learning_rate=learning_rate, learning_momentum=learning_momentum, batch_size=batch_size,
-                              n_iter=n_iter, n_stable=n_stable, f_stable=f_stable, valid_set=valid_set,
-                              valid_size=valid_size, normalize=normalize, regularize=regularize, 
-                              weight_decay=weight_decay, dropout_rate=dropout_rate, loss_type=loss_type,
-                              callback=callback, debug=debug, verbose=verbose, 
-                              warning=None,  # I STILL don't get why in the world he used this stupid parameter?
-                              **auto_encoder_params)
+        encoder = AutoEncoder(activation_function=activation_function, learning_rate=learning_rate, n_epochs=n_epochs,
+                              batch_size=batch_size, n_hidden=n_hidden, compression_ratio=compression_ratio,
+                              min_change=min_change, verbose=verbose, display_step=display_step, seed=seed)
 
         # transform label
         transformed_label = le.transform([label])[0]
@@ -311,7 +192,7 @@ def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, eps=1.0, random
                 encoders[label] = encoder
 
             # transform X_sub, rank it
-            reconstructed = encoder.encode_and_reconstruct(X_sub)
+            reconstructed = encoder.feed_forward(X_sub)
             mse = np.asarray([
                 mean_squared_error(X_sub[i, :], reconstructed[i, :]) 
                 for i in range(X_sub.shape[0])
@@ -325,7 +206,7 @@ def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, eps=1.0, random
             # jitter the sample. We create a random matrix, M x N, (bound in [0, 1]),
             # subtract 0.5 (so there are some negatives), multiply by the columnar standard
             # deviations, and add to the sample.
-            sample += (eps * (sample.std(axis=0) * (random_state.rand(*sample.shape) - 0.5)))
+            sample += (jitter * (sample.std(axis=0) * (random_state.rand(*sample.shape) - 0.5)))
 
             # transform the sample batch, and the output is the interpolated minority sample
             # interpolated = encoder.transform(sample)

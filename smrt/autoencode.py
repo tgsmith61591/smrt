@@ -82,16 +82,15 @@ def _weights_biases_from_hidden(n_hidden, n_features, compression, seed):
         # tensorflow random variable generation will generate all the same matrices if the seed is the same...
         # let's still find a way to keep predictability (for testing) but also maximize shuffle:
         s1, s2 = seed ^ i, seed * i
-        s3, s4 = int(17 * (s1 ** 2) / 31), int(s2 ** 2 / 19 + 43)
 
         # initialize weights for encode/decode layer. While the encode layeres progress through the
         # zipped dimensions, the decode layer steps back up to eventually mapping back to the input space
-        weights['encode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[enc_a, enc_b], seed=s1), name='w')
-        weights['decode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[dec_a, dec_b], seed=s2), name='b')
+        weights['encode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[enc_a, enc_b], seed=s1))
+        weights['decode']['h%i' % i] = tf.Variable(tf.random_normal(shape=[dec_a, dec_b], seed=s2))
 
         # the dimensions of the bias vectors are equivalent to the [1] index of the tuple
-        biases['encode']['b%i' % i] = tf.Variable(tf.random_normal(shape=[enc_b], seed=s3))
-        biases['decode']['b%i' % i] = tf.Variable(tf.random_normal(shape=[dec_b], seed=s4))
+        biases['encode']['b%i' % i] = tf.Variable(tf.ones(shape=[enc_b]))
+        biases['decode']['b%i' % i] = tf.Variable(tf.ones(shape=[dec_b]))
 
     return weights, biases
 
@@ -126,7 +125,7 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
         The number of training examples in a single forward/backward pass. As ``batch_size``
         increases, the memory required will also increase.
 
-    n_hidden : int, list or tuple, optional (default=None)
+    n_hidden : int or list, optional (default=None)
         The hidden layer structure. If an int is provided, a single hidden layer is constructed,
         with ``n_hidden`` neurons. If ``n_hidden`` is an iterable, ``len(n_hidden)`` hidden layers
         are constructed, with as many neurons as correspond to each index, respectively. If no
@@ -218,7 +217,7 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
         n_samples, n_features = X_original.shape
 
         # assign X to tf as a placeholder for now
-        X = tf.placeholder('float', [None, n_features])
+        X = tf.placeholder(tf.float32, [None, n_features])
 
         # validate floats and other params...
         self.compression_ratio = _validate_float(self, 'compression_ratio')
@@ -284,7 +283,7 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
                 epoch_times.append(epoch_time)
 
                 # Display logs if display_step and verbose
-                if epoch % self.display_step == 0 and self.verbose:
+                if epoch % self.display_step == 0 and self.verbose > 1:
                     print('Epoch: %i, cost=%.6f, time=%.4f (sec)' % (epoch + 1, c, epoch_time))
 
                 # update last_cost, and if it meets the stopping criteria, break
@@ -296,12 +295,10 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
                         if self.verbose:
                             print('Convergence reached at epoch %i, stopping early' % epoch)
                         break
+            # assign fit vars
+            self.encode_layer_, self.decode_layer_ = encode, decode
 
-        # assign fit vars
-        self.w_, self.b_ = weights, biases
-        # self.encoder_, self.decoder_ = encode, decode
-
-        if self.verbose > 1:
+        if self.verbose:
             print('Optimization complete after %i epoch(s). Average epoch time: %.4f seconds'
                   % (len(epoch_times), np.average(epoch_times)))
         return self
@@ -330,34 +327,29 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
 
         return next_layer
 
-    def _apply_transformation_steps(self, X, *steps):
-        check_is_fitted(self, 'w_')
+    def _apply_transformation(self, X, step):
+        check_is_fitted(self, 'encode_layer_')
 
-        X_orig = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True)
-        X = tf.placeholder('float', [None, X_orig.shape[1]])
+        X_original = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True)
+        _, n_features = X_original.shape
 
-        init = tf.global_variables_initializer()
+        # assign X to tf as a placeholder for now
+        X = tf.placeholder(tf.float32, [None, n_features])
+
+        # initialize global vars for tf
+        init = tf.local_variables_initializer()
+
+        # run the predict session
         with tf.Session() as sess:
-            sess.run(init)
-            args = (self.activation_function, self.w_, self.b_)
-
-            # do the steps all in one batch, because scoring is cheap:
-            result = None
-            for step in steps:
-                if result is None:
-                    result = step(X, *args)
-                else:
-                    result = step(result, *args)
-
-            return sess.run(result, feed_dict={X: X_orig})
+            sess.run(init, feed_dict={X: X_original})
+            res = sess.run(step, feed_dict={X: X_original})  # todo: why does this throw a placeholder error?
+        return res
 
     def transform(self, X):
-        return self._apply_transformation_steps(X, *(AutoEncoder._encode,))
+        return self._apply_transformation(X, self.encode_layer_)
 
     def inverse_transform(self, X):
-        return self._apply_transformation_steps(X, *(AutoEncoder._decode,))
+        return self._apply_transformation(X, self.decode_layer_)
 
-    def encode_and_reconstruct(self, X):
-        # why don't we just call self.inverse_transform(self.transform(X))?
-        # because it will duplicate the X array TWICE and that might be expensive
-        return self._apply_transformation_steps(X, *(AutoEncoder._encode, AutoEncoder._decode))
+    def feed_forward(self, X):
+        return self.inverse_transform(self.transform(X))
