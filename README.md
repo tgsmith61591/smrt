@@ -21,4 +21,5 @@ $ python setup.py install
 
 ### Notes
 
-See the [original reference](https://www.youtube.com/watch?v=tcGQpjCztgA) for S-M-R-T (enable audio)
+- See (examples)[examples/] for usage
+- See the [original reference](https://www.youtube.com/watch?v=tcGQpjCztgA) for S-M-R-T (enable audio)

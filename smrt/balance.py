@@ -32,7 +32,7 @@ def _validate_ratios(ratio, name):
 
 def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, jitter=1.0, activation_function='relu',
                  learning_rate=0.05, n_epochs=200, batch_size=256, n_hidden=None, compression_ratio=0.6,
-                 min_change=1e-6, verbose=0, display_step=5, seed=42):
+                 min_change=1e-6, verbose=0, display_step=5, seed=42, shuffle=True):
     """SMRT (Sythetic Minority Reconstruction Technique) is the younger, more sophisticated cousin to
     SMOTE (Synthetic Minority Oversampling TEchnique). Using auto-encoders, SMRT learns the parameters
     that best reconstruct the observations in each minority class, and then generates synthetic observations
@@ -114,6 +114,9 @@ def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, jitter=1.0, act
 
     seed : int, optional (default=42)
         An integer. Used to create a random seed for the weight and bias initialization.
+
+    shuffle : bool, optional (default=True)
+        Whether to shuffle the output.
     """
     # validate the cheap stuff before copying arrays around...
     _validate_ratios(balance_ratio, 'balance_ratio')
@@ -212,7 +215,7 @@ def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, jitter=1.0, act
             # interpolated = encoder.transform(sample)
 
             # append to X, y
-            X = X.vstack(X, sample)  # was `interpolated` instead of sample, before
+            X = np.vstack([X, sample])  # was `interpolated` instead of sample, before
             y_transform = np.concatenate([y_transform, np.ones(sample.shape[0]) * transformed_label])
 
             # determine whether we need to recurse for this class (if there were too few samples)
@@ -223,7 +226,10 @@ def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, jitter=1.0, act
     y = le.inverse_transform(y_transform)
 
     # finally, shuffle both and return
-    output_order = random_state.shuffle(np.arange(X.shape[0]))
+    if shuffle:
+        output_order = random_state.shuffle(np.arange(X.shape[0]))
+    else:
+        output_order = np.arange(X.shape[0])
 
     if return_encoders:
         return X[output_order, :], y[output_order], encoders
