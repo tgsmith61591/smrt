@@ -155,7 +155,10 @@ def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, jitter=1.0, act
     majority_count_idx = np.argmax(counts, axis=0)
     majority_label, majority_count = present_classes[majority_count_idx], counts[majority_count_idx]
     target_count = max(int(balance_ratio * majority_count), 1)
-
+    
+    #define a MIN_N_SAMPLES based on the sample ratio to max_class
+    MIN_N_SAMPLES = round(balance_ratio*majority_count)
+    
     # if any counts < MIN_N_SAMPLES, raise:
     if any(i < MIN_N_SAMPLES for i in counts):
         raise ValueError('All label counts must be >= %i' % MIN_N_SAMPLES)
