@@ -1,3 +1,6 @@
+# Mac stuff
+.DS_Store
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -5,6 +8,13 @@ __pycache__/
 
 # C extensions
 *.so
+
+# data
+examples/MNIST_data
+MNIST_data
+
+# PyCharm
+.idea/*
 
 # Distribution / packaging
 .Python
