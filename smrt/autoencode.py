@@ -78,7 +78,8 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
 
     The ``AutoEncoder`` class, as it is intended in ``smrt``, is used to ultimately identify
     the more minority-class-phenotypical training examples to "jitter" and reconstruct as
-    synthetic training set observations.
+    synthetic training set observations. The auto-encoder only uses TensorFlow for the model :meth:``fit``,
+    and retains the numpy arrays of model weights and biases for offline model scoring.
 
 
     Parameters
@@ -347,6 +348,7 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
 
             # set instance vars
             self.weights_, self.biases_ = sess.run(weights), sess.run(biases)
+            self.train_cost_ = c
 
         if self.verbose:
             print('Optimization complete after %i epoch(s). Average epoch time: %.4f seconds'

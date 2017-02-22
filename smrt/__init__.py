@@ -21,10 +21,10 @@ if __SMRT_SETUP__:
     sys.stderr.write('Partial import of SMRT during the build process.' + os.linesep)
 else:
     __all__ = [
-        'autoencode.py',
+        'autoencode',
         'balance'
     ]
 
     # top-level imports
-    from .balance import smrt_balance
+    from .balance import smrt_balance, smote_balance
     from .autoencode import AutoEncoder

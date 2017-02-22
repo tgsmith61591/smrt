@@ -8,7 +8,7 @@ from __future__ import division, absolute_import, division
 from tensorflow.examples.tutorials.mnist import input_data
 from numpy.testing import assert_almost_equal
 from sklearn.model_selection import train_test_split
-from smrt import smrt_balance, AutoEncoder
+from smrt import AutoEncoder
 import numpy as np
 
 
