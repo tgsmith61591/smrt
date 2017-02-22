@@ -10,6 +10,7 @@ from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils.multiclass import type_of_target
 from sklearn.utils.validation import check_array
+from sklearn.neighbors import NearestNeighbors
 from .autoencode import AutoEncoder
 from .utils import get_random_state
 
@@ -17,9 +18,11 @@ from .utils import get_random_state
 import numpy as np
 
 __all__ = [
+    'smote_balance',
     'smrt_balance'
 ]
 
+DEFAULT_SEED = 42
 MAX_N_CLASSES = 100  # max unique classes in y
 MIN_N_SAMPLES = 2  # min n_samples per class in y
 
@@ -30,9 +33,38 @@ def _validate_ratios(ratio, name):
                          % (name, ratio))
 
 
-def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, jitter=1.0, activation_function='relu',
+def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, centering_function='mean', seed=DEFAULT_SEED):
+    """
+
+    Parameters
+    ----------
+    X : array-like, shape (n_samples, n_inputs)
+        Training vectors as real numbers, where ``n_samples`` is the number of
+        samples and ``n_inputs`` is the number of input features.
+
+    y : array-like, shape (n_samples,)
+        Training labels as integers, where ``n_samples`` is the number of samples.
+        ``n_samples`` should be equal to the ``n_samples`` in ``X``.
+
+    return_estimators : bool, optional (default=False)
+        Whether or not to return the dictionary of fit :class:``smrt.autoencode.AutoEncoder`` instances.
+        If True, the return value will be a tuple, with the first index being the balanced
+        ``X`` matrix, the second index being the ``y`` values, and the third index being a
+        dictionary of the fit encoders. If False, the return value is simply the balanced ``X``
+        matrix and the corresponding labels.
+
+    balance_ratio : float, optional (default=0.2)
+        The minimum acceptable ratio of $MINORITY_CLASS : $MAJORITY_CLASS representation,
+        where 0 < ``ratio`` <= 1
+
+    seed : int, optional (default=42)
+        An integer. Used to create a random seed for the random minority class selection.
+    """
+
+
+def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=1.0, activation_function='relu',
                  learning_rate=0.05, n_epochs=200, batch_size=256, n_hidden=None, compression_ratio=0.6,
-                 min_change=1e-6, verbose=0, display_step=5, seed=42, shuffle=True):
+                 min_change=1e-6, verbose=0, display_step=5, seed=DEFAULT_SEED, shuffle=True):
     """SMRT (Sythetic Minority Reconstruction Technique) is the younger, more sophisticated cousin to
     SMOTE (Synthetic Minority Oversampling TEchnique). Using auto-encoders, SMRT learns the parameters
     that best reconstruct the observations in each minority class, and then generates synthetic observations
@@ -55,8 +87,8 @@ def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, jitter=1.0, act
         Training labels as integers, where ``n_samples`` is the number of samples.
         ``n_samples`` should be equal to the ``n_samples`` in ``X``.
 
-    return_encoders : bool, optional (default=False)
-        Whether or not to return the dictionary of fit ``sknn.ae.AutoEncoder`` instances.
+    return_estimators : bool, optional (default=False)
+        Whether or not to return the dictionary of fit :class:``smrt.autoencode.AutoEncoder`` instances.
         If True, the return value will be a tuple, with the first index being the balanced
         ``X`` matrix, the second index being the ``y`` values, and the third index being a 
         dictionary of the fit encoders. If False, the return value is simply the balanced ``X`` 
@@ -214,7 +246,7 @@ def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, jitter=1.0, act
             # transform the sample batch, and the output is the interpolated minority sample
             # interpolated = encoder.transform(sample)
 
-            # append to X, y
+            # append to X, y_transform
             X = np.vstack([X, sample])  # was `interpolated` instead of sample, before
             y_transform = np.concatenate([y_transform, np.ones(sample.shape[0]) * transformed_label])
 
@@ -231,6 +263,6 @@ def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, jitter=1.0, act
     else:
         output_order = np.arange(X.shape[0])
 
-    if return_encoders:
+    if return_estimators:
         return X[output_order, :], y[output_order], encoders
     return X[output_order, :], y[output_order]

@@ -2,7 +2,7 @@
 #
 # Author: Taylor Smith <taylor.smith@alkaline-ml.com>
 #
-# Test the SMRT balancer
+# Test the SMOTE balancer
 
 from __future__ import division, absolute_import, division
 from tensorflow.examples.tutorials.mnist import input_data
@@ -12,5 +12,5 @@ from smrt import smrt_balance, AutoEncoder
 import numpy as np
 
 
-def test_smrt():
+def test_smote():
     pass
