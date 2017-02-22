@@ -9,6 +9,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils import gen_batches, check_array
 from sklearn.utils.validation import check_is_fitted
 from sklearn.externals import six
+from .utils import validate_float
 import numpy as np
 import tensorflow as tf
 import sys
@@ -22,12 +23,8 @@ if sys.version_info[0] >= 3:
     long = int
 
 
-def _relu(x):
-    return np.maximum(x, 0, x)
-
-
-def _sigmoid(x):
-  return 1 / (1 + np.exp(-x))
+def _relu(x):  return np.maximum(x, 0, x)
+def _sigmoid(x):  return 1 / (1 + np.exp(-x))
 
 
 LOCAL_ACTIVATIONS = {
@@ -60,12 +57,11 @@ def _validate_positive_integer(instance, name):
 
 
 def _validate_float(instance, name, upper_bound=1.):
-    val = getattr(instance, name)
     try:
-        res = float(val)
-        assert 0 < val < upper_bound  # the assertion error will be caught and valueerror raised
+        res = float(getattr(instance, name))
+        validate_float(res, name, upper_bound, gtet=False)
     except:
-        raise ValueError('%s must be a float between 0 and %.3f' % (name, upper_bound))
+        raise
     return res
 
 
