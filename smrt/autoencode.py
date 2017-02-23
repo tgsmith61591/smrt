@@ -12,33 +12,39 @@ from sklearn.externals import six
 from .utils import validate_float
 import numpy as np
 import tensorflow as tf
-import sys
 import time
 
 __all__ = [
     'AutoEncoder'
 ]
 
-if sys.version_info[0] >= 3:
-    long = int
+
+# local modules - since the autoencoder is designed to be able
+# to score offline (i.e., no tensorflow session), we need local
+# copies of activation functions that doesn't need a session to be
+# live to run. This limits what activation functions we can use...
+def _relu(x): return np.maximum(x, 0, x)
+def _sigmoid(x): return 1 / (1 + np.exp(-x))
 
 
-def _relu(x):  return np.maximum(x, 0, x)
-def _sigmoid(x):  return 1 / (1 + np.exp(-x))
-
-
+# this dict maps all the supported activation functions to the local
+# variants for offline scoring operations.
 LOCAL_ACTIVATIONS = {
     'relu': _relu,
     'sigmoid': _sigmoid,
     'tanh': np.tanh
 }
 
+# this dict maps all the supported activation functions to the tensorflow
+# equivalent functions for the session model training
 PERMITTED_ACTIVATIONS = {
     'relu': tf.nn.relu,
     'sigmoid': tf.nn.sigmoid,
     'tanh': tf.nn.tanh
 }
 
+# this dict maps all the supported optimizer classes to the tensorflow
+# callables. For now, only strings are supported for learning_function
 PERMITTED_OPTIMIZERS = {
     'rms_prop': tf.train.RMSPropOptimizer,
     'sgd': tf.train.GradientDescentOptimizer
@@ -223,7 +229,7 @@ class AutoEncoder(BaseEstimator, TransformerMixin):
             n_hidden = max(1, int(self.compression_ratio * n_features))
 
         if not isinstance(n_hidden, list):
-            if not isinstance(n_hidden, (long, int, np.int)):
+            if not isinstance(n_hidden, (int, np.int)):
                 raise ValueError('n_hidden must be an int or list')
             n_hidden = [n_hidden]
 

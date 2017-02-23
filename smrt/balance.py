@@ -271,7 +271,7 @@ def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, interpolatio
     return X[output_order, :], y[output_order]
 
 
-def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=1.0, activation_function='relu',
+def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=0.5, activation_function='relu',
                  learning_rate=0.05, n_epochs=200, batch_size=256, n_hidden=None, compression_ratio=0.6,
                  min_change=1e-6, verbose=0, display_step=5, seed=DEFAULT_SEED, shuffle=True, **kwargs):
     """SMRT (Sythetic Minority Reconstruction Technique) is the younger, more sophisticated cousin to
@@ -283,7 +283,7 @@ def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=1.0, a
     neighbors to reconstruct, the possibility exists that a "border point," or an observation very close to 
     the decision boundary may be selected. This could result in the synthetically-generated observations lying 
     too close to the decision boundary for reliable classification, and could lead to the degraded performance
-    of an estimator. SMRT avoids this risk, by ranking observations according to their reconstruction MSE, and
+    of an estimator. SMRT avoids this risk by ranking observations according to their reconstruction MSE, and
     drawing samples to reconstruct from the lowest-MSE observations (i.e., the most "phenotypical" of a class).
     
     Parameters
@@ -371,6 +371,10 @@ def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=1.0, a
     le.fit(present_classes)
     y_transform = le.transform(y)  # make numeric (we need them to be for np.ones)
 
+    # create X copy on which to append. We do this because we do not want to augment
+    # synthetic examples of already-reconstructed examples...
+    X_copy = X[:, :]
+
     # start the iteration...
     encoders = dict()  # map the label to the fit encoder
     for i, label in enumerate(present_classes):
@@ -391,11 +395,10 @@ def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=1.0, a
 
         # transform label
         transformed_label = le.transform([label])[0]
+        X_sub = X[y_transform == transformed_label, :]
 
         # sample while under the requisite ratio
         while True:
-            X_sub = X[y_transform == transformed_label, :]
-
             # the second+ time thru, we don't want to re-fit...
             if label not in encoders:
                 encoder.fit(X_sub)
@@ -422,7 +425,7 @@ def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=1.0, a
             # interpolated = encoder.transform(sample)
 
             # append to X, y_transform
-            X = np.vstack([X, sample])  # was `interpolated` instead of sample, before
+            X_copy = np.vstack([X_copy, sample])  # was `interpolated` instead of sample, before
             y_transform = np.concatenate([y_transform,
                                           np.ones(sample.shape[0], dtype=np.int16) * transformed_label])
 
@@ -435,10 +438,10 @@ def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=1.0, a
 
     # finally, shuffle both and return
     if shuffle:
-        output_order = random_state.shuffle(np.arange(X.shape[0]))
+        output_order = random_state.shuffle(np.arange(X_copy.shape[0]))
     else:
-        output_order = np.arange(X.shape[0])
+        output_order = np.arange(X_copy.shape[0])
 
     if return_estimators:
-        return X[output_order, :], y[output_order], encoders
-    return X[output_order, :], y[output_order]
+        return X_copy[output_order, :], y[output_order], encoders
+    return X_copy[output_order, :], y[output_order]
