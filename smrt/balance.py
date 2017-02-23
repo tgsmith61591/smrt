@@ -156,8 +156,10 @@ def smrt_balance(X, y, return_encoders=False, balance_ratio=0.2, jitter=1.0, act
     majority_label, majority_count = present_classes[majority_count_idx], counts[majority_count_idx]
     target_count = max(int(balance_ratio * majority_count), 1)
     
-    #define a MIN_N_SAMPLES based on the sample ratio to max_class
-    MIN_N_SAMPLES = round(balance_ratio*majority_count)
+    # define a MIN_N_SAMPLES based on the sample ratio to max_class
+    # intuition is that the max we could expect to derive is the number of observations before hitting pure synthetic
+    # this is a hueristic, may make more sense to keep adding jitter to non-synthetic samples until threshold is reached
+    #MIN_N_SAMPLES = round(balance_ratio*majority_count)/2
     
     # if any counts < MIN_N_SAMPLES, raise:
     if any(i < MIN_N_SAMPLES for i in counts):
