@@ -271,9 +271,10 @@ def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, interpolatio
     return X[output_order, :], y[output_order]
 
 
-def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=0.5, activation_function='relu',
-                 learning_rate=0.05, n_epochs=200, batch_size=256, n_hidden=None, compression_ratio=0.6,
-                 min_change=1e-6, verbose=0, display_step=5, seed=DEFAULT_SEED, shuffle=True, **kwargs):
+def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=0.5, min_error_sample=0.25,
+                 activation_function='relu', learning_rate=0.05, n_epochs=200, batch_size=256, n_hidden=None,
+                 compression_ratio=0.6, min_change=1e-6, verbose=0, display_step=5, seed=DEFAULT_SEED,
+                 shuffle=True, **kwargs):
     """SMRT (Sythetic Minority Reconstruction Technique) is the younger, more sophisticated cousin to
     SMOTE (Synthetic Minority Oversampling TEchnique). Using auto-encoders, SMRT learns the parameters
     that best reconstruct the observations in each minority class, and then generates synthetic observations
@@ -312,6 +313,10 @@ def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=0.5, a
         M x N, (bound in [0, 1]), subtract 0.5 (so there are some negatives), and then multiply
         by ``eps``. Finally, we multiply by the columnar standard deviations, and add to the sample.
         As ``eps`` approaches 1, the jitter is increased; as it approaches 0, it is decreased.
+
+    min_error_sample : float, optional (default=0.25)
+        The ratio of the existing minority records from which to sample. Selects the lowest ``min_error_sample``
+        percent (by error) of records for reconstruction.
 
     activation_function : str or callable, optional (default='relu')
         The activation function. If a str, it should be one of PERMITTED_ACTIVATIONS. If a
@@ -365,6 +370,7 @@ def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=0.5, a
 
     random_state = get_random_state(seed)
     validate_float(jitter, 'jitter')
+    validate_float(min_error_sample, 'min_error_sample')
 
     # encode y, in case they are not numeric
     le = LabelEncoder()
@@ -397,24 +403,31 @@ def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=0.5, a
         transformed_label = le.transform([label])[0]
         X_sub = X[y_transform == transformed_label, :]
 
+        # fit the model, store it
+        encoder.fit(X_sub)
+        encoders[label] = encoder
+
+        # transform X_sub, rank it
+        reconstructed = encoder.feed_forward(X_sub)
+        mse = np.asarray([
+            mean_squared_error(X_sub[i, :], reconstructed[i, :])
+            for i in range(X_sub.shape[0])
+        ])
+
+        # rank order:
+        ordered = X_sub[np.argsort(mse), :]  # order asc by reconstr error  # todo, use X_sub or reconstructed?
+        # sample_count = target_count - X_sub.shape[0]  # todo: redo this--pull a subset of these..
+        sample_count = int(round(min_error_sample * X_sub.shape[0]))  # the num rows to select from bottom
+        sample = ordered[:sample_count]  # the interpolation sample
+
+        # the number of obs we need
+        obs_req = target_count - X_sub.shape[0]
+
         # sample while under the requisite ratio
         while True:
-            # the second+ time thru, we don't want to re-fit...
-            if label not in encoders:
-                encoder.fit(X_sub)
-                encoders[label] = encoder
 
-            # transform X_sub, rank it
-            reconstructed = encoder.feed_forward(X_sub)
-            mse = np.asarray([
-                mean_squared_error(X_sub[i, :], reconstructed[i, :]) 
-                for i in range(X_sub.shape[0])
-            ])
-
-            # rank order:
-            ordered = X_sub[np.argsort(mse), :]  # order asc by reconstr error  # todo, use X_sub or reconstructed?
-            sample_count = target_count - X_sub.shape[0]  # todo: redo this--pull a subset of these..
-            sample = ordered[:sample_count]  # the interpolation sample
+            # if obs_req is lower than the sample_count, go with the min
+            sample_count = min(obs_req, sample_count)
 
             # jitter the sample. We create a random matrix, M x N, (bound in [0, 1]),
             # subtract 0.5 (so there are some negatives), multiply by the columnar standard
@@ -429,8 +442,11 @@ def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=0.5, a
             y_transform = np.concatenate([y_transform,
                                           np.ones(sample.shape[0], dtype=np.int16) * transformed_label])
 
+            # update the required amount
+            obs_req -= sample_count
+
             # determine whether we need to recurse for this class (if there were too few samples)
-            if sample.shape[0] + X_sub.shape[0] >= target_count:
+            if obs_req <= 0:  # shouldn't be less than... but just in case
                 break
 
     # now that X, y_transform have been assembled, inverse_transform the y_t back to its original state:
