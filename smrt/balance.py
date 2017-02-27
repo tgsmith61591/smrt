@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 #
-# Author: Taylor Smith <taylor.smith@alkaline-ml.com>
+# Authors: Taylor Smith <taylor.smith@alkaline-ml.com>
+#          Jason White <jason.m.white5@gmail.com>
 #
-# The SMRT balancer
+# The SMRT and SMOTE balancers
 
 from __future__ import division, absolute_import, division
 from sklearn.utils import column_or_1d
@@ -23,10 +24,6 @@ __all__ = [
 DEFAULT_SEED = 42
 MAX_N_CLASSES = 100  # max unique classes in y
 MIN_N_SAMPLES = 2  # min allowed ever.
-INTERPOLATION = {
-    'mean': np.mean,
-    'median': np.median
-}
 
 
 def _validate_X_y_ratio_classes(X, y, ratio):
@@ -77,13 +74,94 @@ def _validate_X_y_ratio_classes(X, y, ratio):
     return X, y, n_classes, present_classes, counts, majority_label, target_count
 
 
-def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, interpolation_function='mean',
-                  n_neighbors=5, algorithm='kd_tree', leaf_size=30, p=2, metric='minkowski',
-                  metric_params=None, n_jobs=1, seed=DEFAULT_SEED, shuffle=True, **kwargs):
+def _perturb(consider_vector, nearest, random_state):
+    return (consider_vector - nearest) * random_state.rand(nearest.shape[0], 1) + consider_vector
+
+
+def _interpolate(consider_vector, nearest, _):
+    # the danger here is that if there are not enough samples, we'll interpolate
+    # with the same value. Hrmm. Maybe add some entropy? # todo
+    return np.average((consider_vector, nearest), axis=0)
+
+
+# Define after the _perturb and _interpolate functions are defined
+STRATEGIES = {
+    'perturb': _perturb,
+    'interpolate': _interpolate
+}
+
+
+def _nearest_neighbors_for_class(X, label, label_encoder, y_transform, majority_label, target_count, random_state,
+                                 strategy, n_neighbors, algorithm, leaf_size, p, metric, metric_params, n_jobs):
+    if strategy not in STRATEGIES:
+        raise ValueError('strategy must be one of %r' % STRATEGIES)
+    func = STRATEGIES[strategy]
+
+    # start the iteration...
+    if label == majority_label:
+        return X, y_transform, None
+
+    # transform the label, get the subset
+    transformed_label = label_encoder.transform([label])[0]
+    X_sub = X[y_transform == transformed_label, :]
+
+    # if the count >= the ratio, skip this label
+    count = X_sub.shape[0]
+    if count >= target_count:
+        return X, y_transform, None
+
+    # define the nearest neighbors model
+    model = NearestNeighbors(n_neighbors=n_neighbors, algorithm=algorithm, leaf_size=leaf_size, p=p,
+                             metric=metric, metric_params=metric_params, n_jobs=n_jobs)
+
+    # get the observations that map to the transformed label
+    amt_required = target_count - count
+
+    # fit the model once, query the tree once. n_neighbors MUST
+    # be ONE PLUS n_neighbors, since the zero'th index will always
+    # be the index of the observation itself (i.e., obs 0 is its own
+    # nearest neighbor).
+    model.fit(X_sub)
+    nearest = model.kneighbors(X_sub, n_neighbors=n_neighbors + 1, return_distance=False)
+    indices = np.arange(count)
+
+    # append the labels to y_transform - do this once to avoid the overhead of repeated concatenations
+    y_transform = np.concatenate([y_transform, np.ones(amt_required, dtype=np.int16) * transformed_label])
+
+    # sample while under the requisite ratio
+    while amt_required > 0:
+        # randomly select some observations, take first amt_required
+        random_indices = random_state.permutation(indices)[:amt_required]
+
+        # select the random sample, get nearest neighbors for the sample indices.
+        synthetic = np.asarray([
+            func(X_sub[consideration, :],
+                 X_sub[nearest[consideration][1:], :],  # take 0th out (the observation vector under consideration)
+                 random_state)
+            for consideration in random_indices  # using the language of smote... ("vector under consideration")
+        ])
+
+        # append to X
+        X = np.vstack([X, synthetic])
+
+        # determine whether we need to recurse for this class (if there were too few samples)
+        amt_required -= synthetic.shape[0]
+
+    return X, y_transform, model
+
+
+def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='perturb', n_neighbors=5,
+                  algorithm='kd_tree', leaf_size=30, p=2, metric='minkowski', metric_params=None, n_jobs=1,
+                  seed=DEFAULT_SEED, shuffle=True, **kwargs):
     """Synthetic Minority Oversampling TEchnique (SMOTE) is a class balancing strategy that samples
-    the k-Nearest Neighbors from each minority class and interpolates them (via either median or mean)
-    to generate synthetic observations. This is repeated until the minority classes are represented at
+    the k-Nearest Neighbors from each minority class, perturbs them with a random value between 0 and 1,
+    and adds the difference between the original observation and the perturbation to the original observation
+    to generate a synthetic observation. This is repeated until the minority classes are represented at
     a prescribed ratio to the majority class.
+
+    Alternative methods involve interpolating the distance between the original observation and the
+    nearest neighbors using either the median or the mean. This strategy can be set using the ``strategy``
+    arg (one of 'perturb' or 'interpolate').
 
     Parameters
     ----------
@@ -96,18 +174,27 @@ def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, interpolatio
         ``n_samples`` should be equal to the ``n_samples`` in ``X``.
 
     return_estimators : bool, optional (default=False)
-        Whether or not to return the dictionary of fit :class:``smrt.autoencode.AutoEncoder`` instances.
-        If True, the return value will be a tuple, with the first index being the balanced
-        ``X`` matrix, the second index being the ``y`` values, and the third index being a
-        dictionary of the fit encoders. If False, the return value is simply the balanced ``X``
-        matrix and the corresponding labels.
+        Whether or not to return the dictionary of fit :class:``sklearn.neighbors.NearestNeighbors`` instances.
+        If True, the return value will be a tuple, with the first index being the balanced ``X`` matrix,
+        the second index being the ``y`` values, and the third index being a dictionary of the fit estimators.
+        If False, the return value is simply a tuple of the balanced ``X`` matrix and the corresponding labels.
 
     balance_ratio : float, optional (default=0.2)
         The minimum acceptable ratio of $MINORITY_CLASS : $MAJORITY_CLASS representation,
         where 0 < ``ratio`` <= 1
 
-    interpolation_function : str, optional (default='mean')
-        The method to interpolate between nearest points. One of ['mean', 'median']
+    strategy : str, optional (default='perturb')
+        The strategy used to construct synthetic examples from existing examples. The original SMOTE
+        paper suggests a strategy by which a random value between 0 and 1 scales the difference
+        between the nearest neighbors, and the difference is then added to the original vector.
+        This is the default strategy, 'perturb'. Valid strategies include:
+
+          * 'perturb' - a random value between 0 and 1 scales the difference
+             between the nearest neighbors, and the difference is then added
+             to the original vector.
+
+          * 'interpolate' - the ``interpolation_method`` ('mean' or 'median') of the nearest neighbors
+            constitutes the synthetic example.
 
     n_neighbors : int, optional (default=5)
         Number of neighbors to use by default for ``kneighbors`` queries. This parameter
@@ -181,100 +268,42 @@ def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, interpolatio
 
     random_state = get_random_state(seed)
 
-    # validate interpolation
-    if interpolation_function not in INTERPOLATION:
-        raise ValueError('interpolation_function must be one of (%r)' % (INTERPOLATION))
-    interpolate = INTERPOLATION[interpolation_function]
-
     # encode y, in case they are not numeric (we need them to be for np.ones)
     le = LabelEncoder()
     le.fit(present_classes)
     y_transform = le.transform(y)  # make numeric
 
-    # start the iteration...
-    models = dict()  # map the label to the fit nearest neighbor models
-    for i, label in enumerate(present_classes):
-        if label == majority_label:
-            continue
-
-        # if the count >= the ratio, skip this label
-        count = counts[i]
-        if count >= target_count:
-            models[label] = None
-            continue
-
-        # define the nearest neighbors model
-        model = NearestNeighbors(n_neighbors=n_neighbors, algorithm=algorithm, leaf_size=leaf_size,
-                                 p=p, metric=metric, metric_params=metric_params, n_jobs=n_jobs,
-                                 **kwargs)
-
-        # transform label
-        transformed_label = le.transform([label])[0]
-
-        # sample while under the requisite ratio
-        while True:
-            # get the observations that map to the transformed label
-            X_sub = X[y_transform == transformed_label, :]
-            amt_required = target_count - X_sub.shape[0]
-
-            # the second+ time thru, we don't want to re-fit...
-            if label not in models:
-                model.fit(X_sub)
-                models[label] = model
-
-            # randomly select some observations
-            random_indices = np.arange(X_sub.shape[0])  # gen range of indices
-            random_state.shuffle(random_indices)  # shuffle them
-
-            if X_sub.shape[0] <= amt_required:
-                # if there are less in X_sub than the difference we need to sample
-                # only select a few this time through. Maybe just select 3/4... is that
-                # a parameter we should tune?
-                random_indices = random_indices[:max(1, int(round(0.75 * X_sub.shape[0])))]
-
-            else:
-                # otherwise, we have enough. Just take the first amt_required from shuffled
-                random_indices = random_indices[:amt_required]
-
-            # select the random sample
-            sample = X_sub[random_indices, :]
-
-            # get nearest neighbors for the sample indices
-            sample_nn = model.kneighbors(sample, n_neighbors=n_neighbors, return_distance=False)
-            synthetic = np.asarray([
-                # get the interpolation of the points:
-                interpolate(X_sub[k_nearest_indices, :], axis=0)
-                for k_nearest_indices in sample_nn
-            ])
-
-            # append to X, y_transform
-            X = np.vstack([X, synthetic])
-            y_transform = np.concatenate([y_transform,
-                                          np.ones(synthetic.shape[0],
-                                                  dtype=np.int16) * transformed_label])
-
-            # determine whether we need to recurse for this class (if there were too few samples)
-            if synthetic.shape[0] + X_sub.shape[0] >= target_count:
-                break
+    # get the nearest neighbor models
+    models = dict()
+    for label in present_classes:
+        # X and y_transform will progressively be updated throughout the runs
+        X, y_transform, models[label] = _nearest_neighbors_for_class(X=X, label=label, label_encoder=le,
+                                                                     y_transform=y_transform,
+                                                                     majority_label=majority_label,
+                                                                     target_count=target_count,
+                                                                     random_state=random_state,
+                                                                     strategy=strategy, n_neighbors=n_neighbors,
+                                                                     algorithm=algorithm, leaf_size=leaf_size,
+                                                                     p=p, metric=metric, metric_params=metric_params,
+                                                                     n_jobs=n_jobs)
 
     # now that X, y_transform have been assembled, inverse_transform the y_t back to its original state:
     y = le.inverse_transform(y_transform)
 
     # finally, shuffle both and return
+    output_order = np.arange(X.shape[0])
     if shuffle:
-        output_order = random_state.shuffle(np.arange(X.shape[0]))
-    else:
-        output_order = np.arange(X.shape[0])
+        output_order = random_state.permutation(output_order)
 
     if return_estimators:
         return X[output_order, :], y[output_order], models
     return X[output_order, :], y[output_order]
 
 
-def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=0.5, min_error_sample=0.25,
+def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='perturb', min_error_sample=0.25,
                  activation_function='relu', learning_rate=0.05, n_epochs=200, batch_size=256, n_hidden=None,
                  compression_ratio=0.6, min_change=1e-6, verbose=0, display_step=5, seed=DEFAULT_SEED,
-                 shuffle=True, **kwargs):
+                 shuffle=True, smote_args={}, **kwargs):
     """SMRT (Sythetic Minority Reconstruction Technique) is the younger, more sophisticated cousin to
     SMOTE (Synthetic Minority Oversampling TEchnique). Using auto-encoders, SMRT learns the parameters
     that best reconstruct the observations in each minority class, and then generates synthetic observations
@@ -307,12 +336,6 @@ def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=0.5, m
     balance_ratio : float, optional (default=0.2)
         The minimum acceptable ratio of $MINORITY_CLASS : $MAJORITY_CLASS representation,
         where 0 < ``ratio`` <= 1
-
-    jitter : float, optional (default=1.0)
-        A value between 0 and 1. This is used to jitter the sample. We create a random matrix, 
-        M x N, (bound in [0, 1]), subtract 0.5 (so there are some negatives), and then multiply
-        by ``eps``. Finally, we multiply by the columnar standard deviations, and add to the sample.
-        As ``eps`` approaches 1, the jitter is increased; as it approaches 0, it is decreased.
 
     min_error_sample : float, optional (default=0.25)
         The ratio of the existing minority records from which to sample. Selects the lowest ``min_error_sample``
@@ -369,7 +392,6 @@ def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=0.5, m
     counts, majority_label, target_count = _validate_X_y_ratio_classes(X, y, balance_ratio)
 
     random_state = get_random_state(seed)
-    validate_float(jitter, 'jitter')
     validate_float(min_error_sample, 'min_error_sample')
 
     # encode y, in case they are not numeric
@@ -415,39 +437,37 @@ def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, jitter=0.5, m
         ])
 
         # rank order:
-        ordered = X_sub[np.argsort(mse), :]  # order asc by reconstr error  # todo, use X_sub or reconstructed?
+        mse_order = np.argsort(mse)
+        ordered = X_sub[mse_order, :]  # order asc by reconstr error
+        reconstructed_ordered = reconstructed[mse_order, :]
+
         # sample_count = target_count - X_sub.shape[0]  # todo: redo this--pull a subset of these..
         sample_count = int(round(min_error_sample * X_sub.shape[0]))  # the num rows to select from bottom
-        sample = ordered[:sample_count]  # the interpolation sample
 
         # the number of obs we need
         obs_req = target_count - X_sub.shape[0]
 
         # sample while under the requisite ratio
-        while True:
+        while obs_req > 0:  # shouldn't be less than... but just in case
 
             # if obs_req is lower than the sample_count, go with the min
             sample_count = min(obs_req, sample_count)
+            perturb_sample = ordered[:sample_count]  # makes a copy we can perturb
+            reconst_sample = reconstructed_ordered[:sample_count]  # the corresponding reconstruction samples
 
-            # jitter the sample. We create a random matrix, M x N, (bound in [0, 1]),
-            # subtract 0.5 (so there are some negatives), multiply by the columnar standard
-            # deviations, and add to the sample.
-            sample += (jitter * (sample.std(axis=0) * (random_state.rand(*sample.shape) - 0.5)))
-
-            # transform the sample batch, and the output is the interpolated minority sample
-            # interpolated = encoder.transform(sample)
+            # perturb the sample. Subtract the reconstruction matrix from the original sample,
+            # then We create a random matrix, M x N, (bound in [0, 1]), multiply it by the difference matrix,
+            # and add it to the original sample.
+            perturb_sample += ((perturb_sample - reconst_sample) * random_state.rand(*perturb_sample.shape))
 
             # append to X, y_transform
-            X_copy = np.vstack([X_copy, sample])  # was `interpolated` instead of sample, before
+            X_copy = np.vstack([X_copy, perturb_sample])
             y_transform = np.concatenate([y_transform,
-                                          np.ones(sample.shape[0], dtype=np.int16) * transformed_label])
-
-            # update the required amount
-            obs_req -= sample_count
+                                          np.ones(sample_count, dtype=np.int16) * transformed_label])
 
             # determine whether we need to recurse for this class (if there were too few samples)
-            if obs_req <= 0:  # shouldn't be less than... but just in case
-                break
+            # update the required amount
+            obs_req -= sample_count
 
     # now that X, y_transform have been assembled, inverse_transform the y_t back to its original state:
     y = le.inverse_transform(y_transform)
