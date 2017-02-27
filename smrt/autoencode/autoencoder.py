@@ -17,7 +17,7 @@ from . import _ae_utils as aeutil
 from ._ae_utils import xavier_initialization
 from . import base
 from .base import BaseAutoEncoder, ReconstructiveMixin, GenerativeMixin, _validate_float, _validate_positive_integer
-from ..utils import overrides
+from ..utils import overrides, get_random_state
 
 __all__ = [
     'AutoEncoder',
@@ -597,15 +597,15 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, Reconstruct
         # define the encoder, decoder functions
         z_mean, z_log_sigma_sq = self._encoding_function(X, weights, biases, activation)  # encode
         epsilon = tf.random_normal([self.batch_size, n_latent_factors], 0, 1, dtype=DTYPE, seed=seed)  # one sample
-        z = tf.add(z_mean, tf.mul(tf.sqrt(tf.exp(z_log_sigma_sq)), epsilon))
-        X_reconstruction_mean = self._decoding_function(X, weights, biases, activation)  # decode
+        self.z_ = tf.add(z_mean, tf.mul(tf.sqrt(tf.exp(z_log_sigma_sq)), epsilon))
+        self.X_reconstruction_mean_ = self._decoding_function(X, weights, biases, activation)  # decode
 
         # Create the loss function optimizer. This dual-part loss function is adapted from code found at [2]
         # 1.) The reconstruction loss (the negative log probability of the input under the reconstructed
         #     Bernoulli distribution induced by the decoder in the data space). This can be interpreted as the number
         #     of "nats" required for reconstructing the input when the activation in latent is given.
-        reconstruction_loss = -tf.reduce_sum(X * tf.log(self.eps + X_reconstruction_mean)
-                                             + (1 - X) * tf.log(self.eps + 1 - X_reconstruction_mean), 1)
+        reconstruction_loss = -tf.reduce_sum(X * tf.log(self.eps + self.X_reconstruction_mean_)
+                                             + (1 - X) * tf.log(self.eps + 1 - self.X_reconstruction_mean_), 1)
 
         # 2.) The latent loss, which is defined as the Kullback Leibler divergence between the distribution in
         #     latent space induced by the encoder on the data and some prior. This acts as a kind of regularizer.
@@ -614,6 +614,10 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, Reconstruct
         latent_loss = -0.5 * tf.reduce_sum(1 + z_log_sigma_sq - tf.square(z_mean) - tf.exp(z_log_sigma_sq), 1)
         cost_function = tf.reduce_mean(reconstruction_loss + latent_loss)
         optimizer = learning_function(self.learning_rate).minimize(cost_function)
+
+        # assign some instance attrs
+        self.z_mean_, self.z_log_sigma_sq_ = z_mean, z_log_sigma_sq
+        self.n_latent_factors_ = n_latent_factors  # set the final version used
 
         # actually do training
         return self._train(X, X_original, weights, biases, n_samples, cost_function, optimizer)
@@ -641,3 +645,22 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, Reconstruct
             return z_mean, z_log_sigma_sq
         else:
             return z_mean
+
+    def transform(self, X):
+        check_is_fitted(self, 'weights_')
+        return self.sess.run(self.z_mean_, feed_dict={self.X_placeholder: X})
+
+    @overrides(GenerativeMixin)
+    def generate(self, z_mu=None):
+        check_is_fitted(self, 'weights_')
+
+        if z_mu is None:
+            z_mu = get_random_state(self.seed).normal(self.n_latent_factors_)
+        return self.sess.run(self.X_reconstruction_mean_,
+                             feed_dict={self.z_: z_mu})
+
+    @overrides
+    def reconstruct(self, X):
+        check_is_fitted(self, 'weights_')
+        return self.sess.run(self.X_reconstruction_mean_,
+                             feed_dict={self.X_placeholder: X})

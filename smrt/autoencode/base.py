@@ -9,6 +9,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.externals import six
 import numpy as np
 import tensorflow as tf
+import atexit
 from abc import ABCMeta, abstractmethod
 from ..utils import validate_float
 
@@ -67,6 +68,9 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         self.seed = seed
         self.xavier_init = xavier_init
 
+        # at exit, make sure we close the session
+        atexit.register(self.clean_session)
+
     def _validate_for_fit(self):
         # validate floats and other params...
         self.compression_ratio = _validate_float(self, 'compression_ratio', upper_bound=np.inf)
@@ -107,7 +111,7 @@ class ReconstructiveMixin:
 
 class GenerativeMixin:
     @abstractmethod
-    def generate(self):
+    def generate(self, *args, **kwargs):
         """Do something currently undefined...
         """
         #todo
