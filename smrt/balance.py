@@ -6,15 +6,17 @@
 # The SMRT and SMOTE balancers
 
 from __future__ import division, absolute_import, division
-from sklearn.utils import column_or_1d
+
+import numpy as np
 from sklearn.metrics import mean_squared_error
+from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import LabelEncoder
+from sklearn.utils import column_or_1d
 from sklearn.utils.multiclass import type_of_target
 from sklearn.utils.validation import check_array
-from sklearn.neighbors import NearestNeighbors
-from .autoencode import AutoEncoder
+
+from .autoencode.autoencoder import AutoEncoder
 from .utils import get_random_state, validate_float
-import numpy as np
 
 __all__ = [
     'smote_balance',
@@ -303,7 +305,7 @@ def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='pe
 def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='perturb', min_error_sample=0.25,
                  activation_function='relu', learning_rate=0.05, n_epochs=200, batch_size=256, n_hidden=None,
                  compression_ratio=0.6, min_change=1e-6, verbose=0, display_step=5, seed=DEFAULT_SEED,
-                 shuffle=True, smote_args={}, **kwargs):
+                 xavier_init=True, n_latent_factors=None, eps=1e-10, shuffle=True, smote_args={}, **kwargs):
     """SMRT (Sythetic Minority Reconstruction Technique) is the younger, more sophisticated cousin to
     SMOTE (Synthetic Minority Oversampling TEchnique). Using auto-encoders, SMRT learns the parameters
     that best reconstruct the observations in each minority class, and then generates synthetic observations
@@ -384,6 +386,15 @@ def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='per
     seed : int, optional (default=42)
         An integer. Used to create a random seed for the weight and bias initialization.
 
+    xavier_init : bool, optional (default=True)
+        Whether to use Xavier's initialization for the weights.
+
+    n_latent_factors : int or float, optional (default=None)
+
+    eps : float, optional (default=1e-10)
+        A small amount of noise to add to the loss to avoid a potential computation of
+        ``log(0)``.
+
     shuffle : bool, optional (default=True)
         Whether to shuffle the output.
     """
@@ -430,7 +441,7 @@ def smrt_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='per
         encoders[label] = encoder
 
         # transform X_sub, rank it
-        reconstructed = encoder.feed_forward(X_sub)
+        reconstructed = encoder.reconstruct(X_sub)
         mse = np.asarray([
             mean_squared_error(X_sub[i, :], reconstructed[i, :])
             for i in range(X_sub.shape[0])

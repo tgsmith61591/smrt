@@ -22,13 +22,13 @@ def test_autoencoder():
     # define
     ae = AutoEncoder(n_epochs=10, learning_rate=0.01, batch_size=256,
                      display_step=5, activation_function='sigmoid',
-                     verbose=2, seed=seed)
+                     verbose=2, seed=seed, xavier_init=False)
 
     # fit
     ae.fit(X_train)
 
     # transform and reconstruct the test images
-    reconstructed = ae.feed_forward(X_test)
+    reconstructed = ae.reconstruct(X_test)
 
     # get the error:
     mse = ((X_test - reconstructed) ** 2).sum(axis=1).sum() / X_test.shape[0]

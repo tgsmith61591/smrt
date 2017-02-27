@@ -4,8 +4,8 @@
 #
 # The SMRT module
 
-import sys
 import os
+import sys
 
 __version__ = '0.1'
 
@@ -27,4 +27,4 @@ else:
 
     # top-level imports
     from .balance import smrt_balance, smote_balance
-    from .autoencode import AutoEncoder
+    from .autoencode.autoencoder import *
