@@ -9,15 +9,16 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.externals import six
 import numpy as np
 import tensorflow as tf
-import atexit
 from abc import ABCMeta, abstractmethod
 from ..utils import validate_float
 
 __all__ = [
     'BaseAutoEncoder',
+    'GenerativeMixin',
     'ReconstructiveMixin'
 ]
 
+# common dtype used throughout
 DTYPE = tf.float32
 
 
@@ -69,6 +70,7 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         self.xavier_init = xavier_init
 
         # at exit, make sure we close the session
+        import atexit
         atexit.register(self.clean_session)
 
     def _validate_for_fit(self):
@@ -95,6 +97,13 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         back into the original feature space. In computer vision, this would may be a deconvolution layer.
         """
 
+    @abstractmethod
+    def transform(self, X):
+        """Inherited (nominally) from the ``TransformerMixin``, the ``transform`` method encodes the
+        input, projecting it into the compressed feature space. The transform method should return a
+        numpy array.
+        """
+
     def clean_session(self):
         if hasattr(self, 'sess'):
             self.sess.close()
@@ -112,6 +121,6 @@ class ReconstructiveMixin:
 class GenerativeMixin:
     @abstractmethod
     def generate(self, *args, **kwargs):
-        """Do something currently undefined...
+        """Generate a new example or set of examples, given a fit generative
+        model. Usually, the args passed in will relate to some fit parameters.
         """
-        #todo

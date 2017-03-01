@@ -9,22 +9,8 @@ import numpy as np
 from . import base
 
 __all__ = [
-    'relu',
-    'sigmoid',
     'xavier_initialization'
 ]
-
-
-# local modules - since the autoencoder is designed to be able
-# to score offline (i.e., no tensorflow session), we need local
-# copies of activation functions that doesn't need a session to be
-# live to run. This limits what activation functions we can use...
-def relu(x):
-    return np.maximum(x, 0, x)
-
-
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
 
 
 def xavier_initialization(shape, seed, c=1):

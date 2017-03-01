@@ -30,26 +30,21 @@ DTYPE = base.DTYPE
 # equivalent functions for the session model training. It also maps all the
 # supported activation functions to the local variants for offline scoring operations.
 PERMITTED_ACTIVATIONS = {
-    'relu': {
-        'tf': tf.nn.relu,
-        'local': aeutil.relu
-    },
-
-    'sigmoid': {
-        'tf': tf.nn.sigmoid,
-        'local': aeutil.sigmoid
-    },
-
-    'tanh': {
-        'tf': tf.nn.tanh,
-        'local': np.tanh
-    }
+    'relu': tf.nn.relu,
+    'sigmoid': tf.nn.sigmoid,
+    'tanh': tf.nn.tanh
 }
 
 # this dict maps all the supported optimizer classes to the tensorflow
 # callables. For now, only strings are supported for learning_function
 PERMITTED_OPTIMIZERS = {
+    'adadelta': tf.train.AdadeltaOptimizer,
+    'adagrad': tf.train.AdagradOptimizer,
+    'adagrad-da': tf.train.AdagradDAOptimizer,
     'adam': tf.train.AdamOptimizer,
+    'momentum': tf.train.MomentumOptimizer,
+    'proximal-sgd': tf.train.ProximalGradientDescentOptimizer,
+    'proximal-adagrad': tf.train.ProximalAdagradOptimizer,
     'rms_prop': tf.train.RMSPropOptimizer,
     'sgd': tf.train.GradientDescentOptimizer
 }
@@ -61,12 +56,12 @@ def _validate_activation_optimization(activation_function, learning_function):
             raise ValueError('Permitted activation functions: %r' % list(PERMITTED_ACTIVATIONS.keys()))
     else:
         raise TypeError('Activation function must be a string')
-    activation = PERMITTED_ACTIVATIONS[activation_function]['tf']  # make it local
+    activation = PERMITTED_ACTIVATIONS[activation_function]  # make it local
 
     # validation optimization function:
     if isinstance(learning_function, six.string_types):
         if learning_function not in PERMITTED_OPTIMIZERS:
-            raise ValueError('Permitted learning functions: %r' % PERMITTED_OPTIMIZERS)
+            raise ValueError('Permitted learning functions: %r' % list(PERMITTED_OPTIMIZERS.keys()))
     else:
         raise TypeError('Learning function must be a string')
     learning_function = PERMITTED_OPTIMIZERS[learning_function]
@@ -106,10 +101,18 @@ def _initial_weights_biases(n_hidden, n_features, compression_ratio, sd, seed, x
     # both weights and biases are dicts with two stages each:
     #   * encode: learn the compressed feature space
     #   * decode: re-map the compressed feature space to the original space
+    # this procedure creates a symmetrical topography given a (maybe) provided
+    # number or list of layer size(s).
     weights, biases = {}, {}
+    n_layers = 0
+    first_layer = None
     for i, t in enumerate(encode_dimensions):
         enc_a, enc_b = t
         dec_a, dec_b = decode_dimensions[i]
+
+        # this is needed for the VAE
+        if first_layer is None:
+            first_layer = enc_b  # enc_a is the input layer size...
 
         # tensor flow random variable generation will generate all the same matrices if the seed is the same...
         # let's still find a way to keep predictability (for testing) but also maximize shuffle:
@@ -125,7 +128,10 @@ def _initial_weights_biases(n_hidden, n_features, compression_ratio, sd, seed, x
         biases['b%i_encode' % i] = tf.Variable(_initialize_variable([enc_b], s3))
         biases['b%i_decode' % i] = tf.Variable(_initialize_variable([dec_b], s4))
 
-    # if we are doing variational, add the means and std layers
+        # count the number of layers
+        n_layers += 1
+
+    # if we are doing variational, add the means and std layers - these map kind of strangely.
     if latent_factors is not None:
         # i has incremented at this point and is still in scope, so we can still use it to
         # create some seeds derivative of the original seed. Furthermore, enc_b, enc_a are still
@@ -133,19 +139,19 @@ def _initial_weights_biases(n_hidden, n_features, compression_ratio, sd, seed, x
         s1, s2, s3, s4 = _get_seeds(seed, i)
         s5, s6, s7, s8 = _get_seeds(seed, i + 1)  # kind of (very) hacky way to seed more
 
-        # output of encode weights, bias
+        # output of encoding/recognition layer weights, bias
         weights['out_mean_encode'] = tf.Variable(init_func([enc_b, latent_factors], s1))
         weights['out_log_sigma_encode'] = tf.Variable(init_func([enc_b, latent_factors], s5))
         biases['out_mean_encode'] = tf.Variable(_initialize_variable([latent_factors], s2))
         biases['out_log_sigma_encode'] = tf.Variable(_initialize_variable([latent_factors], s6))
 
-        # output of decode weights, bias
-        weights['out_mean_decode'] = tf.Variable(init_func([dec_b, n_features], s3))
-        weights['out_log_sigma_decode'] = tf.Variable(init_func([dec_b, n_features], s7))
+        # output of decoding/reconstruction layer weights, bias
+        weights['out_mean_decode'] = tf.Variable(init_func([first_layer, n_features], s3))
+        weights['out_log_sigma_decode'] = tf.Variable(init_func([first_layer, n_features], s7))
         biases['out_mean_decode'] = tf.Variable(_initialize_variable([n_features], s4))
         biases['out_log_sigma_decode'] = tf.Variable(_initialize_variable([n_features], s8))
 
-    return weights, biases
+    return weights, biases, n_layers
 
 
 class _SymmetricAutoEncoder(BaseAutoEncoder):
@@ -168,6 +174,20 @@ class _SymmetricAutoEncoder(BaseAutoEncoder):
                                                     initial_weight_stddev=initial_weight_stddev, seed=seed,
                                                     xavier_init=xavier_init)
 
+    def _encode_decode_from_stages(self, x, weights, biases, activation, key):
+        # push the X through the topography
+        n_layers = self._n_layers
+
+        result_layer = None
+        for i in range(n_layers):
+            wts, bss = weights['h%i_%s' % (i, key)], biases['b%i_%s' % (i, key)]
+
+            # if it's the first hidden layer, the input tensor is X, otherwise the last layer
+            tensor = x if result_layer is None else result_layer
+            result_layer = activation(tf.add(tf.matmul(tensor, wts), bss))
+
+        return result_layer
+
     @overrides(BaseAutoEncoder)
     def _encoding_function(self, x, weights, biases, activation):
         return self._encode_decode_from_stages(x, weights, biases, activation, 'encode')
@@ -175,13 +195,6 @@ class _SymmetricAutoEncoder(BaseAutoEncoder):
     @overrides(BaseAutoEncoder)
     def _decoding_function(self, x, weights, biases, activation):
         return self._encode_decode_from_stages(x, weights, biases, activation, 'decode')
-
-    @abstractmethod
-    def _encode_decode_from_stages(self, x, weights, biases, activation, key):
-        """Encode or decode given the provided key ('encode' or 'decode'). Since this is
-        only for symmetrically-designed encoders, it basically traverses up one side or the
-        other.
-        """
 
     def _train(self, X, X_original, weights, biases, n_samples, cost_function, optimizer):
         # initialize global vars for tf - replace them if they already exist
@@ -247,6 +260,7 @@ class _SymmetricAutoEncoder(BaseAutoEncoder):
 
         return self
 
+
 class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
     """An AutoEncoder is a special case of a feed-forward neural network that attempts to learn
     a compressed feature space of the input tensor, and whose output layer seeks to reconstruct
@@ -303,7 +317,9 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
 
     learning_function : str, optional (default='rms_prop')
         The optimizing function for training. Default is ``'rms_prop'``, which will use
-        the ``tf.train.RMSPropOptimizer``. Can be one of {``'rms_prop'``, ``'sgd'``, ``'adam'``}
+        the ``tf.train.RMSPropOptimizer``. Can be one of { ``'adadelta'``, ``'adagrad'``,
+        ``'adagrad-da'``, ``'adam'``, ``'momentum'``, ``'proximal-sgd'``, ``'proximal-adagrad'``,
+        ``'rms_prop'``, ``'sgd'``}
 
     early_stopping : bool, optional (default=False)
         If this is set to True, and the delta between the last cost and the new cost
@@ -380,13 +396,13 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
         seed = self.seed
 
         # initialize the weights
-        weights, biases = _initial_weights_biases(n_hidden, n_features, self.compression_ratio,
-                                                  self.initial_weight_stddev, seed, self.xavier_init,
-                                                  None)  # no latent factors for this model
+        weights, biases, self._n_layers = _initial_weights_biases(n_hidden, n_features, self.compression_ratio,
+                                                                  self.initial_weight_stddev, seed, self.xavier_init,
+                                                                  None)  # no latent factors for this model
 
         # define the encoder, decoder functions
-        encoder = self._encoding_function(X, weights, biases, activation)
-        decoder = self._decoding_function(encoder, weights, biases, activation)
+        self.encoder_ = encoder = self._encoding_function(X, weights, biases, activation)
+        self.decoder_ = decoder = self._decoding_function(encoder, weights, biases, activation)
         y_pred, y_true = decoder, X
 
         # get loss and optimizer, minimize MSE
@@ -396,45 +412,13 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
         # do training
         return self._train(X, X_original, weights, biases, n_samples, cost_function, optimizer)
 
-    # define encoder, decoder
-    @overrides(_SymmetricAutoEncoder)
-    def _encode_decode_from_stages(self, x, weights, biases, activation, key):
-        n_layers = len(weights) // 2  # twice as many layers, since there's the decode layer(s) too..
-
-        result_layer = None
-        for i in range(n_layers):
-            wts, bss = weights['h%i_%s' % (i, key)], biases['b%i_%s' % (i, key)]
-
-            # if it's the first hidden layer, the input tensor is X, otherwise the last layer
-            tensor = x if result_layer is None else result_layer
-            result_layer = activation(tf.add(tf.matmul(tensor, wts), bss))
-
-        return result_layer
-
-    def _apply_transformation(self, X, key):
-        check_is_fitted(self, 'weights_')
-
-        # create the steps:
-        n_layers = len(self.weights_) // 2  # twice as many layers, since there's the decode layer too..
-        activation = PERMITTED_ACTIVATIONS[self.activation_function]['local']
-
-        result_layer = None
-        for i in range(n_layers):
-            wts, bss = self.weights_['h%i_%s' % (i, key)], self.biases_['b%i_%s' % (i, key)]
-            tensor = X if result_layer is None else result_layer
-            result_layer = activation(np.dot(tensor, wts) + bss)
-
-        return result_layer
-
+    @overrides(BaseAutoEncoder)
     def transform(self, X):
-        return self._apply_transformation(X, key='encode')
-
-    def inverse_transform(self, X):
-        return self._apply_transformation(X, key='decode')
+        return self.sess.run(self.encoder_, feed_dict={self.X_placeholder: X})
 
     @overrides(ReconstructiveMixin)
     def reconstruct(self, X):
-        return self.inverse_transform(self.transform(X))
+        return self.sess.run(self.decoder_, feed_dict={self.X_placeholder: X})
 
 
 class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, ReconstructiveMixin):
@@ -495,7 +479,9 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, Reconstruct
 
     learning_function : str, optional (default='rms_prop')
         The optimizing function for training. Default is ``'rms_prop'``, which will use
-        the ``tf.train.RMSPropOptimizer``. Can be one of {``'rms_prop'``, ``'sgd'``, ``'adam'``}
+        the ``tf.train.RMSPropOptimizer``. Can be one of { ``'adadelta'``, ``'adagrad'``,
+        ``'adagrad-da'``, ``'adam'``, ``'momentum'``, ``'proximal-sgd'``, ``'proximal-adagrad'``,
+        ``'rms_prop'``, ``'sgd'``}
 
     early_stopping : bool, optional (default=False)
         If this is set to True, and the delta between the last cost and the new cost
@@ -511,6 +497,7 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, Reconstruct
         Whether to use Xavier's initialization, as referenced in [1].
 
     n_latent_factors : int or float, optional (default=None)
+        The size of the latent factor layer learned by the ``VariationalAutoEncoder``
 
     eps : float, optional (default=1e-10)
         A small amount of noise to add to the loss to avoid a potential computation of
@@ -541,6 +528,8 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, Reconstruct
     [1] http://jmlr.org/proceedings/papers/v9/glorot10a/glorot10a.pdf
 
     [2] http://jmetzen.github.io/2015-11-27/vae.html
+
+    [3] http://blog.fastforwardlabs.com/2016/08/12/introducing-variational-autoencoders-in-prose-and.html
     """
     def __init__(self, activation_function='sigmoid', learning_rate=0.05, n_epochs=20, batch_size=128,
                  n_hidden=None, compression_ratio=0.6, min_change=1e-6, verbose=0, display_step=5,
@@ -588,17 +577,18 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, Reconstruct
         # either gets a warm-start or a potentially already grand-mothered weight matrix.
         n_hidden = self.n_hidden
         seed = self.seed
+        self.random_state_ = get_random_state(seed)
 
         # initialize the weights
-        weights, biases = _initial_weights_biases(n_hidden, n_features, self.compression_ratio,
-                                                  self.initial_weight_stddev, seed, self.xavier_init,
-                                                  n_latent_factors)
+        weights, biases, self._n_layers = _initial_weights_biases(n_hidden, n_features, self.compression_ratio,
+                                                                  self.initial_weight_stddev, seed, self.xavier_init,
+                                                                  n_latent_factors)
 
         # define the encoder, decoder functions
-        z_mean, z_log_sigma_sq = self._encoding_function(X, weights, biases, activation)  # encode
+        self.z_mean_, self.z_log_sigma_sq_ = self._encoding_function(X, weights, biases, activation)  # encode
         epsilon = tf.random_normal([self.batch_size, n_latent_factors], 0, 1, dtype=DTYPE, seed=seed)  # one sample
-        self.z_ = tf.add(z_mean, tf.mul(tf.sqrt(tf.exp(z_log_sigma_sq)), epsilon))
-        self.X_reconstruction_mean_ = self._decoding_function(X, weights, biases, activation)  # decode
+        self.z_ = tf.add(self.z_mean_, tf.multiply(tf.sqrt(tf.exp(self.z_log_sigma_sq_)), epsilon))
+        self.X_reconstruction_mean_ = self._decoding_function(self.z_, weights, biases, activation)  # decode
 
         # Create the loss function optimizer. This dual-part loss function is adapted from code found at [2]
         # 1.) The reconstruction loss (the negative log probability of the input under the reconstructed
@@ -611,55 +601,63 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, Reconstruct
         #     latent space induced by the encoder on the data and some prior. This acts as a kind of regularizer.
         #     This can be interpreted as the number of "nats" required for transmitting the the latent space
         #     distribution given the prior.
-        latent_loss = -0.5 * tf.reduce_sum(1 + z_log_sigma_sq - tf.square(z_mean) - tf.exp(z_log_sigma_sq), 1)
+        latent_loss = -0.5 * tf.reduce_sum(1 + self.z_log_sigma_sq_ -
+                                           tf.square(self.z_mean_) - tf.exp(self.z_log_sigma_sq_), 1)
         cost_function = tf.reduce_mean(reconstruction_loss + latent_loss)
         optimizer = learning_function(self.learning_rate).minimize(cost_function)
 
         # assign some instance attrs
-        self.z_mean_, self.z_log_sigma_sq_ = z_mean, z_log_sigma_sq
         self.n_latent_factors_ = n_latent_factors  # set the final version used
 
         # actually do training
         return self._train(X, X_original, weights, biases, n_samples, cost_function, optimizer)
 
-    # define encoder, decoder
     @overrides(_SymmetricAutoEncoder)
-    def _encode_decode_from_stages(self, x, weights, biases, activation, key):
-        n_layers = len(weights) // 2  # twice as many layers, since there's the decode layer(s) too..
+    def _encoding_function(self, x, weights, biases, activation):
+        tensor_product = self._encode_decode_from_stages(x, weights, biases, activation, 'encode')
 
-        result_layer = None
-        for i in range(n_layers):
-            wts, bss = weights['h%i_%s' % (i, key)], biases['b%i_%s' % (i, key)]
+        # the variational auto-encoder has a second step, which is to compute the means & SDs of the layer output
+        mn, sig = 'out_mean_encode', 'out_log_sigma_encode'
+        z_mean = tf.add(tf.matmul(tensor_product, weights[mn]), biases[mn])
+        z_log_sigma_sq = tf.add(tf.matmul(tensor_product, weights[sig]), biases[sig])
 
-            # if it's the first hidden layer, the input tensor is X, otherwise the last layer
-            tensor = x if result_layer is None else result_layer
-            result_layer = activation(tf.add(tf.matmul(tensor, wts), bss))
+        return z_mean, z_log_sigma_sq
 
-        # the variational autoencoder has a second step, which is to compute the means
-        # and standard deviations of the layer output
-        mean_lookup, sigma_lookup = 'out_mean_%s' % key, 'out_log_sigma_%s' % key
-        z_mean = tf.add(tf.matmul(result_layer, weights[mean_lookup]), biases[mean_lookup])
+    @overrides(_SymmetricAutoEncoder)
+    def _decoding_function(self, x, weights, biases, activation):
+        tensor_product = self._encode_decode_from_stages(x, weights, biases, activation, 'decode')
 
-        if key == 'encode':
-            z_log_sigma_sq = tf.add(tf.matmul(result_layer, weights[sigma_lookup]), biases[sigma_lookup])
-            return z_mean, z_log_sigma_sq
-        else:
-            return z_mean
+        # the variational auto-encoder has a second step, which is to compute the means & SDs of the layer output
+        mn, sig = 'out_mean_decode', 'out_log_sigma_decode'
 
+        # should we allow other activations? Or only sigmoid since this is a Bernoulli loss?
+        X_reconstruction_mean = tf.nn.sigmoid(tf.add(tf.matmul(tensor_product, weights[mn]), biases[mn]))
+        return X_reconstruction_mean
+
+    @overrides(BaseAutoEncoder)
     def transform(self, X):
         check_is_fitted(self, 'weights_')
         return self.sess.run(self.z_mean_, feed_dict={self.X_placeholder: X})
 
     @overrides(GenerativeMixin)
-    def generate(self, z_mu=None):
+    def generate(self, n=1, z_mu=None):
         check_is_fitted(self, 'weights_')
 
-        if z_mu is None:
-            z_mu = get_random_state(self.seed).normal(self.n_latent_factors_)
-        return self.sess.run(self.X_reconstruction_mean_,
-                             feed_dict={self.z_: z_mu})
+        if n != 1 and z_mu is not None:
+            raise ValueError('either z_mu or n must be provided, but not both')
 
-    @overrides
+        out = []
+        for i in range(n):
+            if z_mu is None:
+                z_mu = self.random_state_.normal(self.n_latent_factors_)
+
+            # run with the random selected mean
+            out.append(self.sess.run(self.X_reconstruction_mean_, feed_dict={self.z_: z_mu}))
+
+        # treat like vectorized... if we want to only generate one example, just return the 0th index
+        return out[0] if len(out) == 1 else np.asarray(out)
+
+    @overrides(ReconstructiveMixin)
     def reconstruct(self, X):
         check_is_fitted(self, 'weights_')
         return self.sess.run(self.X_reconstruction_mean_,

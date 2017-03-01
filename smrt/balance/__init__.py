@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 #
-# All modules related to auto-encoders
+# All modules related to class balancing
 
-from .base import *
-from .autoencoder import *
+from .smrt import *
+from .smote import *
 
 __all__ = [s for s in dir() if not s.startswith("_")] # Remove hiddens

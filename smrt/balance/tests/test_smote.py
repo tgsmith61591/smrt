@@ -5,10 +5,9 @@
 # Test the SMOTE balancer
 
 from __future__ import division, absolute_import, division
-# from tensorflow.examples.tutorials.mnist import input_data
 from numpy.testing import assert_almost_equal, assert_array_almost_equal
 from sklearn.datasets import load_iris
-from smrt import smote_balance
+from smrt.balance import smote_balance
 import numpy as np
 
 
