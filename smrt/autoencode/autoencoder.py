@@ -334,7 +334,7 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
         return self.sess.run(t.decode, feed_dict={self.X_placeholder: X})
 
 
-class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, ReconstructiveMixin):
+class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
     """An AutoEncoder is a special case of a feed-forward neural network that attempts to learn
     a compressed feature space of the input tensor, and whose output layer seeks to reconstruct
     the original input. It is, therefore, a dimensionality reduction technique, on one hand, but
@@ -486,13 +486,16 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, Reconstruct
         # set up our weight matrix. This needs to be re-initialized for every fit, since (like sklearn)
         # we want to allow for model/transformer re-fits. IF we don't reinitialize, the next input
         # either gets a warm-start or a potentially already grand-mothered weight matrix.
-        self.random_state_ = get_random_state(self.seed)
         self.topography_ = SymmetricalVAETopography(X_placeholder=self.X_placeholder,
-                                                    n_hidden=self.n_hidden, input_shape=n_features,
-                                                    activation=activation, n_latent_factors=self.n_latent_factors,
-                                                    layer_type=self.layer_type, dropout=self.dropout, scope=self.scope,
+                                                    n_hidden=self.n_hidden,
+                                                    input_shape=n_features,
+                                                    activation=activation,
+                                                    n_latent_factors=self.n_latent_factors,
+                                                    layer_type=self.layer_type,
+                                                    dropout=self.dropout,
+                                                    scope=self.scope,
                                                     bias_strategy=self.bias_strategy,
-                                                    random_state=self.random_state_)
+                                                    random_state=self.random_state)
 
         # Create the loss function optimizer. This dual-part loss function is adapted from code found at [2]
         # 1.) The reconstruction loss (the negative log probability of the input under the reconstructed
@@ -517,28 +520,10 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, Reconstruct
     @overrides(BaseAutoEncoder)
     def transform(self, X):
         check_is_fitted(self, 'topography_')
-        return self.sess.run(self.z_mean_, feed_dict={self.X_placeholder: X})
+        t = self.topography_
+        return self.sess.run([t.z_mean_, t.z_log_sigma_], feed_dict={self.X_placeholder: X})
 
     @overrides(GenerativeMixin)
     def generate(self, n=1, z_mu=None):
         check_is_fitted(self, 'topography_')
-
-        if n != 1 and z_mu is not None:
-            raise ValueError('either z_mu or n must be provided, but not both')
-
-        out = []
-        for i in range(n):
-            if z_mu is None:
-                z_mu = self.random_state_.normal(self.n_latent_factors_)
-
-            # run with the random selected mean
-            out.append(self.sess.run(self.X_reconstruction_mean_, feed_dict={self.z_: z_mu}))
-
-        # treat like vectorized... if we want to only generate one example, just return the 0th index
-        return out[0] if len(out) == 1 else np.asarray(out)
-
-    @overrides(ReconstructiveMixin)
-    def reconstruct(self, X):
-        check_is_fitted(self, 'topography_')
-        return self.sess.run(self.X_reconstruction_mean_,
-                             feed_dict={self.X_placeholder: X})
+        # todo

@@ -277,15 +277,14 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
         # add the latent distribution ("hidden code")
         # z ~ N(z_mean, exp(z_log_sigma) ** 2)
         z_mean, z_log_sigma = tuple(
-            _chain_layers(LayerClass(fan_in=n_hidden[-1], fan_out=n_latent, activation=activation,
-                                     dropout=dropout, bias_strategy=bias_strategy, scope=scp,
-                                     seed=next_seed(random_state)),
-                          encode)
+            LayerClass(fan_in=n_hidden[-1], fan_out=n_latent, activation=activation,
+                       dropout=dropout, bias_strategy=bias_strategy, scope=scp,
+                       seed=next_seed(random_state)).feed_forward(encode)  # operate on encode operation
             for scp in ('z_mean', 'z_log_sigma')
         )
 
         # kingma & welling: only 1 draw necessary
-        z = self._gaussian_sample(z_mean, z_log_sigma)
+        z = self._gaussian_sample(z_mean, z_log_sigma, random_state)
 
         # define decode layers
         decoding_layers = [
