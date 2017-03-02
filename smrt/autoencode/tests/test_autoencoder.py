@@ -20,16 +20,20 @@ def test_autoencoder():
     X_train, X_test = train_test_split(all_data, train_size=0.7, random_state=seed)
 
     # define
-    ae = AutoEncoder(n_epochs=10, learning_rate=0.01, batch_size=256,
-                     display_step=5, activation_function='sigmoid',
-                     verbose=2, seed=seed, xavier_init=False)
+    ae = AutoEncoder(n_hidden=400, n_epochs=10, learning_rate=0.01, batch_size=256,
+                     display_step=5, activation_function='sigmoid', verbose=2,
+                     random_state=seed, layer_type='gaussian')
 
     # fit
     ae.fit(X_train)
+
+    # train error
+    assert_almost_equal(ae.train_cost_, 0.00380031)
 
     # transform and reconstruct the test images
     reconstructed = ae.reconstruct(X_test)
 
     # get the error:
     mse = ((X_test - reconstructed) ** 2).sum(axis=1).sum() / X_test.shape[0]
+
     # assert_almost_equal(mse, 4.40549573864)
