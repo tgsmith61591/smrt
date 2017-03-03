@@ -21,7 +21,8 @@ if __SMRT_SETUP__:
 else:
     __all__ = [
         'autoencode',
-        'balance'
+        'balance',
+        'testing'
     ]
 
     # top-level imports - if any

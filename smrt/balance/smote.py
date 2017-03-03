@@ -82,7 +82,7 @@ def _nearest_neighbors_for_class(X, label, label_encoder, y_transform, majority_
     while amt_required > 0:
         # randomly select some observations. since each selection will produce
         # n_neighbors synthetic points, take the first amt_required // n_neighbors
-        draw_count = int(round(amt_required / n_neighbors))
+        draw_count = max(1, int(round(amt_required / n_neighbors)))
         random_indices = random_state.permutation(indices)[:draw_count]
 
         # select the random sample, get nearest neighbors for the sample indices.
@@ -106,7 +106,7 @@ def _nearest_neighbors_for_class(X, label, label_encoder, y_transform, majority_
 
 def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='perturb', n_neighbors=5,
                   algorithm='kd_tree', leaf_size=30, p=2, metric='minkowski', metric_params=None, n_jobs=1,
-                  seed=DEFAULT_SEED, shuffle=True, **kwargs):
+                  random_state=DEFAULT_SEED, shuffle=True):
     """Synthetic Minority Oversampling TEchnique (SMOTE) is a class balancing strategy that samples
     the k-Nearest Neighbors from each minority class, perturbs them with a random value between 0 and 1,
     and adds the difference between the original observation and the perturbation to the original observation
@@ -213,14 +213,19 @@ def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='pe
     shuffle : bool, optional (default=True)
         Whether to shuffle the output.
 
-    seed : int, optional (default=42)
-        An integer. Used to create a random seed for the random minority class selection.
+    random_state : int, ``np.random.RandomState`` or None, optional (default=None)
+        The numpy random state for seeding random TensorFlow variables in weight initialization.
     """
     # validate the cheap stuff before copying arrays around...
     X, y, n_classes, present_classes, \
-    counts, majority_label, target_count = _validate_X_y_ratio_classes(X, y, balance_ratio)
+        counts, majority_label, target_count = _validate_X_y_ratio_classes(X, y, balance_ratio)
 
-    random_state = get_random_state(seed)
+    # if n_neighbors < 2, it will only draw itself
+    if n_neighbors < 2:
+        raise ValueError('n_neighbors must be 2 at minimum')
+
+    # make sure it's not just an int
+    random_state = get_random_state(random_state)
 
     # encode y, in case they are not numeric (we need them to be for np.ones)
     le = LabelEncoder()

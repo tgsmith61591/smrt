@@ -21,6 +21,7 @@ def configuration(parent_package='', top_path=None):
     # modules
     config.add_subpackage('autoencode')
     config.add_subpackage('balance')
+    config.add_subpackage('testing')
 
     # module tests -- must be added after others!
     config.add_subpackage('autoencode/tests')

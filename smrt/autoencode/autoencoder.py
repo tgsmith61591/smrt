@@ -355,6 +355,9 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
         with ``n_hidden`` neurons. If ``n_hidden`` is an iterable, ``len(n_hidden)`` hidden layers
         are constructed, with as many neurons as correspond to each index, respectively.
 
+    n_latent_factors : int or float
+        The size of the latent factor layer learned by the ``VariationalAutoEncoder``
+
     activation_function : str, optional (default='sigmoid')
         The activation function. Should be one of PERMITTED_ACTIVATIONS: ('elu', 'relu', 'sigmoid', 'tanh')
 
@@ -413,9 +416,6 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
     scope : str, optional (default='dense_layer')
         The scope used for TensorFlow variable sharing.
 
-    n_latent_factors : int or float
-        The size of the latent factor layer learned by the ``VariationalAutoEncoder``
-
     eps : float, optional (default=1e-10)
         A small amount of noise to add to the loss to avoid a potential computation of
         ``log(0)``.
@@ -448,7 +448,7 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
 
     [3] http://blog.fastforwardlabs.com/2016/08/12/introducing-variational-autoencoders-in-prose-and.html
     """
-    def __init__(self, n_hidden, n_latent_factors=None, activation_function='sigmoid', learning_rate=0.05,
+    def __init__(self, n_hidden, n_latent_factors, activation_function='sigmoid', learning_rate=0.05,
                  n_epochs=20, batch_size=128, min_change=1e-6, verbose=0, display_step=5, learning_function='rms_prop',
                  early_stopping=False, bias_strategy='zeros', random_state=None, layer_type='xavier', dropout=1.,
                  scope='dense_layer', eps=1e-10):
@@ -525,19 +525,20 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
         return self.sess.run([t.z_mean_, t.z_log_sigma_], feed_dict={self.X_placeholder: X})
 
     @overrides(GenerativeMixin)
-    def generate(self, z_mu=None):
+    def generate(self, n=1, z_mu=None, **nrm_args):
         check_is_fitted(self, 'topography_')
         t = self.topography_
 
+        if n != 1 and z_mu:
+            raise ValueError('either n or z_mu may be specified, but not both')
+
         # see https://github.com/fastforwardlabs/vae-tf/blob/master/vae.py#L194
-        feed_dict = dict()
         if z_mu is not None:
             is_tensor = lambda x: hasattr(x, 'eval')
             z_mu = (self.sess.run(z_mu) if is_tensor(z_mu) else z_mu)
-            feed_dict.update({t.z_: z_mu})
         else:
-            feed_dict.update({t.z_: self.random_state.rand(self.n_latent_factors)})
+            z_mu = self.random_state.normal(size=(n, self.n_latent_factors), **nrm_args)
 
         # if z_mu is not provided, it defaults to drawing from the priors:
         # z ~ N(0, I)
-        return self.sess.run(t.decode, feed_dict=feed_dict)
+        return self.sess.run(t.decode, feed_dict={t.z_: z_mu})
