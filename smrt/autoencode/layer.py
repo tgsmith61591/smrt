@@ -11,8 +11,7 @@ import tensorflow as tf
 import numpy as np
 from abc import ABCMeta, abstractmethod
 from ..utils import overrides, get_random_state, next_seed
-from .base import _validate_positive_integer, _validate_float
-from . import base
+from .base import _validate_positive_integer, _validate_float, DTYPE
 
 __all__ = [
     'GaussianDenseLayer',
@@ -20,8 +19,6 @@ __all__ = [
     'SymmetricalVAETopography',
     'XavierDenseLayer'
 ]
-
-DTYPE = base.DTYPE
 
 
 def _chain_layers(layers, tensor):

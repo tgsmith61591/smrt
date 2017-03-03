@@ -13,9 +13,8 @@ from sklearn.utils import gen_batches, check_array
 from sklearn.utils.validation import check_is_fitted
 from abc import ABCMeta, abstractmethod
 
-from . import base
 from .layer import SymmetricalAutoEncoderTopography, SymmetricalVAETopography
-from .base import BaseAutoEncoder, ReconstructiveMixin, GenerativeMixin, _validate_float
+from .base import BaseAutoEncoder, ReconstructiveMixin, GenerativeMixin, _validate_float, DTYPE
 from ..utils import overrides, get_random_state, next_seed
 from ._ae_utils import cross_entropy, kullback_leibler
 
@@ -23,8 +22,6 @@ __all__ = [
     'AutoEncoder',
     'VariationalAutoEncoder'
 ]
-
-DTYPE = base.DTYPE
 
 # this dict maps all the supported activation functions to the tensorflow
 # equivalent functions for the session model training. It also maps all the
