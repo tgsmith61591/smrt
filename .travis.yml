@@ -5,7 +5,7 @@ before_install: source build_tools/travis/before_install.sh
 addons:
   apt:
     packages:
-    - gcc
+    # - gcc
     - g++
 
 env:
