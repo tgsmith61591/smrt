@@ -263,6 +263,9 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
         encode_dimensions = list(zip(n_hidden[:-1], n_hidden[1:]))
         decode_dimensions = [(v, k) for k, v in reversed(encode_dimensions)]
 
+        # insert the dims for the latent -> decode dimensions
+        decode_dimensions.insert(0, (n_latent, n_hidden[-1]))
+
         encoding_layers = [
             LayerClass(fan_in=fan_in, fan_out=fan_out,
                        activation=activation, dropout=dropout,
@@ -286,16 +289,25 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
         # kingma & welling: only 1 draw necessary
         z = self._gaussian_sample(z_mean, z_log_sigma, random_state)
 
-        # define decode layers
+        # define decode layers - only to the second to last. The last layer
+        # should use a sigmoid activation regardless of the defined activation
+        # (because binary cross entropy)
         decoding_layers = [
             LayerClass(fan_in=fan_in, fan_out=fan_out,
                        activation=activation, dropout=dropout,
                        bias_strategy=bias_strategy, scope=scope,
                        seed=next_seed(random_state))
-            for fan_in, fan_out in decode_dimensions
+            for fan_in, fan_out in decode_dimensions[:-1]
         ]
 
-        decode = _chain_layers(decoding_layers, z)
+        # append the FINAL layer class which uses sigmoid
+        fi, fo = decode_dimensions[-1]  # fee, fi, fo... heh
+        decoding_layers.append(LayerClass(fan_in=fi, fan_out=fo,
+                                          activation=tf.nn.sigmoid, dropout=dropout,
+                                          bias_strategy=bias_strategy, scope=scope,
+                                          seed=next_seed(random_state)))
+
+        decode = _chain_layers(decoding_layers, z)  # generative function
 
         # set some internals...
         self.z_mean_, self.z_log_sigma_, self.z_ = z_mean, z_log_sigma, z

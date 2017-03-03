@@ -30,6 +30,9 @@ def test_autoencoder():
     # train error
     assert_almost_equal(ae.train_cost_, 0.00380031)
 
+    # ensure transform runs... todo assert vals
+    ae.transform(X_train)
+
     # transform and reconstruct the test images
     reconstructed = ae.reconstruct(X_test)
 

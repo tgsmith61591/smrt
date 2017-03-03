@@ -10,7 +10,7 @@ from sklearn.externals import six
 import numpy as np
 import tensorflow as tf
 from abc import ABCMeta, abstractmethod
-from ..utils import validate_float
+from ..utils import validate_float, get_random_state
 
 __all__ = [
     'BaseAutoEncoder',
@@ -65,7 +65,7 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         self.learning_function = learning_function
         self.early_stopping = early_stopping
         self.bias_strategy = bias_strategy
-        self.random_state = random_state
+        self.random_state = get_random_state(random_state)
         self.layer_type = layer_type
         self.dropout = dropout
         self.scope = scope

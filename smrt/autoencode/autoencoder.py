@@ -325,6 +325,7 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
     @overrides(BaseAutoEncoder)
     def transform(self, X):
         check_is_fitted(self, 'topography_')
+        t = self.topography_
         return self.sess.run(t.encode, feed_dict={self.X_placeholder: X})
 
     @overrides(ReconstructiveMixin)
@@ -524,6 +525,19 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
         return self.sess.run([t.z_mean_, t.z_log_sigma_], feed_dict={self.X_placeholder: X})
 
     @overrides(GenerativeMixin)
-    def generate(self, n=1, z_mu=None):
+    def generate(self, z_mu=None):
         check_is_fitted(self, 'topography_')
-        # todo
+        t = self.topography_
+
+        # see https://github.com/fastforwardlabs/vae-tf/blob/master/vae.py#L194
+        feed_dict = dict()
+        if z_mu is not None:
+            is_tensor = lambda x: hasattr(x, 'eval')
+            z_mu = (self.sess.run(z_mu) if is_tensor(z_mu) else z_mu)
+            feed_dict.update({t.z_: z_mu})
+        else:
+            feed_dict.update({t.z_: self.random_state.rand(self.n_latent_factors)})
+
+        # if z_mu is not provided, it defaults to drawing from the priors:
+        # z ~ N(0, I)
+        return self.sess.run(t.decode, feed_dict=feed_dict)

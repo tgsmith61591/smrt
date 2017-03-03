@@ -31,8 +31,11 @@ def test_autoencoder():
     # train error
     # assert_almost_equal(ae.train_cost_, 0.00380031)
 
-    # transform and reconstruct the test images
-    # reconstructed = ae.reconstruct(X_test)
+    # assert transform works todo assert vals
+    ae.transform(X_train)
+
+    # generate a sample
+    ae.generate()
 
     # get the error:
     # mse = ((X_test - reconstructed) ** 2).sum(axis=1).sum() / X_test.shape[0]
