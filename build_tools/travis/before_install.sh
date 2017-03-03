@@ -6,6 +6,6 @@ set -e
 sudo apt-get -qq update
 
 # we need GLIBCXX_3.4.19
-sudo apt-get install gcc-4.9
+# sudo apt-get install gcc-4.9 g++-4.9
 
 # TODO: install bazel
