@@ -6,6 +6,7 @@ addons:
   apt:
     packages:
     - gcc
+    - g++
 
 env:
   global:
