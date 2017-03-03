@@ -13,11 +13,11 @@ from sklearn.utils import gen_batches, check_array
 from sklearn.utils.validation import check_is_fitted
 from abc import ABCMeta, abstractmethod
 
-from . import _ae_utils as aeutil
-from ._ae_utils import xavier_initialization
 from . import base
-from .base import BaseAutoEncoder, ReconstructiveMixin, GenerativeMixin, _validate_float, _validate_positive_integer
-from ..utils import overrides, get_random_state
+from .layer import SymmetricalAutoEncoderTopography, SymmetricalVAETopography
+from .base import BaseAutoEncoder, ReconstructiveMixin, GenerativeMixin, _validate_float
+from ..utils import overrides, get_random_state, next_seed
+from ._ae_utils import cross_entropy, kullback_leibler
 
 __all__ = [
     'AutoEncoder',
@@ -30,6 +30,7 @@ DTYPE = base.DTYPE
 # equivalent functions for the session model training. It also maps all the
 # supported activation functions to the local variants for offline scoring operations.
 PERMITTED_ACTIVATIONS = {
+    'elu': tf.nn.elu,
     'relu': tf.nn.relu,
     'sigmoid': tf.nn.sigmoid,
     'tanh': tf.nn.tanh
@@ -69,134 +70,38 @@ def _validate_activation_optimization(activation_function, learning_function):
     return activation, learning_function
 
 
-def _initial_weights_biases(n_hidden, n_features, compression_ratio, sd, seed, xavier, latent_factors):
-    if n_hidden is None:
-        n_hidden = max(1, int(compression_ratio * n_features))
-
-    if not isinstance(n_hidden, list):
-        if not isinstance(n_hidden, (int, np.int)):
-            raise ValueError('n_hidden must be an int or list')
-        n_hidden = [n_hidden]
-
-    # otherwise it's iterable. There will be two times as many layers as the length of n_hidden:
-    # n_hidden * encode layer, and n_hidden * decode layer. Since the dimensions are
-    # piped into one another, stagger them (zipped with a lag), and then reverse for
-    # the decode layer. First, though, append n_features to n_hidden
-    n_hidden.insert(0, n_features)
-    encode_dimensions = list(zip(n_hidden[:-1], n_hidden[1:]))
-    decode_dimensions = [(v, k) for k, v in reversed(encode_dimensions)]  # pyramid back to n_features
-
-    # if we are using Xavier, call xavier_initialization. Otherwise we need an alternative
-    def _initialize_variable(shape, _seed):
-        # since it's a closure, it can access sd
-        return tf.random_normal(shape=shape, stddev=sd, seed=_seed, dtype=DTYPE)
-    init_func = _initialize_variable if not xavier else xavier_initialization
-
-    # function to generate derivative seeds
-    def _get_seeds(s, i):
-        s1, s2 = seed ^ i, seed * i
-        s3, s4 = int(17 * (s1 ** 2) / 31), int(s2 ** 2 / 19 + 43)
-        return s1, s2, s3, s4
-
-    # both weights and biases are dicts with two stages each:
-    #   * encode: learn the compressed feature space
-    #   * decode: re-map the compressed feature space to the original space
-    # this procedure creates a symmetrical topography given a (maybe) provided
-    # number or list of layer size(s).
-    weights, biases = {}, {}
-    n_layers = 0
-    first_layer = None
-    for i, t in enumerate(encode_dimensions):
-        enc_a, enc_b = t
-        dec_a, dec_b = decode_dimensions[i]
-
-        # this is needed for the VAE
-        if first_layer is None:
-            first_layer = enc_b  # enc_a is the input layer size...
-
-        # tensor flow random variable generation will generate all the same matrices if the seed is the same...
-        # let's still find a way to keep predictability (for testing) but also maximize shuffle:
-        s1, s2, s3, s4 = _get_seeds(seed, i)
-
-        # initialize weights for encode/decode layer. While the encode layers progress through the
-        # zipped dimensions, the decode layer steps back up to eventually mapping back to the input space
-        weights['h%i_encode' % i] = tf.Variable(init_func([enc_a, enc_b], s1))
-        weights['h%i_decode' % i] = tf.Variable(init_func([dec_a, dec_b], s2))
-
-        # the dimensions of the bias vectors are equivalent to the [1] index of the tuple
-        # the biases do not use Xavier initialization!
-        biases['b%i_encode' % i] = tf.Variable(_initialize_variable([enc_b], s3))
-        biases['b%i_decode' % i] = tf.Variable(_initialize_variable([dec_b], s4))
-
-        # count the number of layers
-        n_layers += 1
-
-    # if we are doing variational, add the means and std layers - these map kind of strangely.
-    if latent_factors is not None:
-        # i has incremented at this point and is still in scope, so we can still use it to
-        # create some seeds derivative of the original seed. Furthermore, enc_b, enc_a are still
-        # in scope so we can use them as well.
-        s1, s2, s3, s4 = _get_seeds(seed, i)
-        s5, s6, s7, s8 = _get_seeds(seed, i + 1)  # kind of (very) hacky way to seed more
-
-        # output of encoding/recognition layer weights, bias
-        weights['out_mean_encode'] = tf.Variable(init_func([enc_b, latent_factors], s1))
-        weights['out_log_sigma_encode'] = tf.Variable(init_func([enc_b, latent_factors], s5))
-        biases['out_mean_encode'] = tf.Variable(_initialize_variable([latent_factors], s2))
-        biases['out_log_sigma_encode'] = tf.Variable(_initialize_variable([latent_factors], s6))
-
-        # output of decoding/reconstruction layer weights, bias
-        weights['out_mean_decode'] = tf.Variable(init_func([first_layer, n_features], s3))
-        weights['out_log_sigma_decode'] = tf.Variable(init_func([first_layer, n_features], s7))
-        biases['out_mean_decode'] = tf.Variable(_initialize_variable([n_features], s4))
-        biases['out_log_sigma_decode'] = tf.Variable(_initialize_variable([n_features], s8))
-
-    return weights, biases, n_layers
-
-
 class _SymmetricAutoEncoder(BaseAutoEncoder):
     """Base class for the two provided autoencoders, which are architecturally symmetric
     in terms of hidden layers. The encode/decode functions will not work for non-symmetrically-architected
     neural networks.
     """
-    def __init__(self, activation_function='sigmoid', learning_rate=0.05, n_epochs=20, batch_size=128,
-                 n_hidden=None, compression_ratio=0.6, min_change=1e-6, verbose=0, display_step=5,
-                 learning_function='rms_prop', early_stopping=False, initial_weight_stddev=0.001,
-                 seed=42, xavier_init=True):
+    def __init__(self, n_hidden, activation_function, learning_rate, n_epochs, batch_size, min_change, verbose,
+                 display_step, learning_function, early_stopping, bias_strategy, random_state, layer_type,
+                 dropout, scope):
 
         super(_SymmetricAutoEncoder, self).__init__(activation_function=activation_function,
                                                     learning_rate=learning_rate, n_epochs=n_epochs,
                                                     batch_size=batch_size, n_hidden=n_hidden,
-                                                    compression_ratio=compression_ratio, min_change=min_change,
-                                                    verbose=verbose, display_step=display_step,
+                                                    min_change=min_change, verbose=verbose,
+                                                    display_step=display_step,
                                                     learning_function=learning_function,
                                                     early_stopping=early_stopping,
-                                                    initial_weight_stddev=initial_weight_stddev, seed=seed,
-                                                    xavier_init=xavier_init)
+                                                    bias_strategy=bias_strategy,
+                                                    random_state=random_state,
+                                                    layer_type=layer_type, dropout=dropout,
+                                                    scope=scope)
 
-    def _encode_decode_from_stages(self, x, weights, biases, activation, key):
-        # push the X through the topography
-        n_layers = self._n_layers
+    @abstractmethod
+    def _initialize_graph(self, X, y):
+        """Should be called in the ``fit`` method. This initializes the placeholder variables"""
 
-        result_layer = None
-        for i in range(n_layers):
-            wts, bss = weights['h%i_%s' % (i, key)], biases['b%i_%s' % (i, key)]
+    def fit(self, X, y=None, **kwargs):
+        X, cost_function, optimizer = self._initialize_graph(X, y)
 
-            # if it's the first hidden layer, the input tensor is X, otherwise the last layer
-            tensor = x if result_layer is None else result_layer
-            result_layer = activation(tf.add(tf.matmul(tensor, wts), bss))
+        # do training
+        return self._train(self.X_placeholder, X, cost_function, optimizer)
 
-        return result_layer
-
-    @overrides(BaseAutoEncoder)
-    def _encoding_function(self, x, weights, biases, activation):
-        return self._encode_decode_from_stages(x, weights, biases, activation, 'encode')
-
-    @overrides(BaseAutoEncoder)
-    def _decoding_function(self, x, weights, biases, activation):
-        return self._encode_decode_from_stages(x, weights, biases, activation, 'decode')
-
-    def _train(self, X, X_original, weights, biases, n_samples, cost_function, optimizer):
+    def _train(self, X_placeholder, X_original, cost_function, optimizer):
         # initialize global vars for tf - replace them if they already exist
         init = tf.global_variables_initializer()
         self.clean_session()
@@ -210,6 +115,7 @@ class _SymmetricAutoEncoder(BaseAutoEncoder):
         # generate the batches in a generator from sklearn, but store
         # in a list so we don't have to re-gen (since the generator will be
         # empty by the end of the epoch)
+        n_samples = X_original.shape[0]
         batches = list(gen_batches(n_samples, self.batch_size))
 
         # training cycle. For each epoch
@@ -228,7 +134,7 @@ class _SymmetricAutoEncoder(BaseAutoEncoder):
                 assert m <= self.batch_size and m != 0  # sanity check
 
                 # train the batch - runs optimization op (backprop) and cost op (to get loss value)
-                _, c = sess.run([optimizer, cost_function], feed_dict={X: chunk})
+                _, c = sess.run([optimizer, cost_function], feed_dict={X_placeholder: chunk})
 
             # add the time to the times array to compute average later
             epoch_time = time.time() - start_time
@@ -251,7 +157,6 @@ class _SymmetricAutoEncoder(BaseAutoEncoder):
                         break
 
         # set instance vars
-        self.weights_, self.biases_ = sess.run(weights), sess.run(biases)
         self.train_cost_ = c
 
         if self.verbose:
@@ -274,8 +179,13 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
 
     Parameters
     ----------
+    n_hidden : int or list
+        The hidden layer structure. If an int is provided, a single hidden layer is constructed,
+        with ``n_hidden`` neurons. If ``n_hidden`` is an iterable, ``len(n_hidden)`` hidden layers
+        are constructed, with as many neurons as correspond to each index, respectively.
+
     activation_function : str, optional (default='sigmoid')
-        The activation function. Should be one of PERMITTED_ACTIVATIONS.
+        The activation function. Should be one of PERMITTED_ACTIVATIONS: ('elu', 'relu', 'sigmoid', 'tanh')
 
     learning_rate : float, optional (default=0.05)
         The algorithm learning rate.
@@ -289,19 +199,6 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
     batch_size : int, optional (default=128)
         The number of training examples in a single forward/backward pass. As ``batch_size``
         increases, the memory required will also increase.
-
-    n_hidden : int or list, optional (default=None)
-        The hidden layer structure. If an int is provided, a single hidden layer is constructed,
-        with ``n_hidden`` neurons. If ``n_hidden`` is an iterable, ``len(n_hidden)`` hidden layers
-        are constructed, with as many neurons as correspond to each index, respectively. If no
-        value is passed for ``n_hidden`` (default), the ``AutoEncoder`` defaults to a single hidden
-        layer of ``compression_ratio * n_features`` in order to force the network to learn a compressed
-        feature space.
-
-    compression_ratio : float, optional (default=0.6)
-        If no value is passed for ``n_hidden`` (default), the ``AutoEncoder`` defaults to a single hidden
-        layer of ``compression_ratio * n_features`` in order to force the network to learn a compressed
-        feature space. Default ``compression_ratio`` is 0.6.
 
     min_change : float, optional (default=1e-6)
         An early stopping criterion. If the delta between the last cost and the new cost
@@ -325,14 +222,25 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
         If this is set to True, and the delta between the last cost and the new cost
         is less than ``min_change``, the network will stop fitting early.
 
-    initial_weight_stddev : float, optional (default=0.001)
-        The standard deviation of the initial random, normally distributed weights.
+    bias_strategy : str, optional (default='zeros')
+        The strategy for initializing the bias vector. Default is 'zeros' and will
+        initialize all bias values as zeros. The alternative is 'ones', which will
+        initialize all bias values as ones.
 
-    seed : int, optional (default=42)
-        An integer. Used to create a random seed for the weight and bias initialization.
+    random_state : int, ``np.random.RandomState`` or None, optional (default=None)
+        The numpy random state for seeding random TensorFlow variables in weight initialization.
 
-    xavier_init : bool, optional (default=True)
-        Whether to use Xavier's initialization, as referenced in [2].
+    layer_type : str
+        The type of layer, i.e., 'xavier'. This is the type of layer that
+        will be generated. One of {'xavier', 'gaussian'}
+
+    dropout : float, optional (default=1.0)
+        Dropout is a mechanism to prevent over-fitting a network. Dropout functions
+        by randomly dropping hidden units (and their connections) during training.
+        This prevents units from co-adapting too much.
+
+    scope : str, optional (default='dense_layer')
+        The scope used for TensorFlow variable sharing.
 
 
     Notes
@@ -361,28 +269,31 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
     [2] http://jmlr.org/proceedings/papers/v9/glorot10a/glorot10a.pdf
     """
 
-    def __init__(self, activation_function='sigmoid', learning_rate=0.05, n_epochs=20, batch_size=128,
-                 n_hidden=None, compression_ratio=0.6, min_change=1e-6, verbose=0, display_step=5,
-                 learning_function='rms_prop', early_stopping=False, initial_weight_stddev=0.001,
-                 seed=42, xavier_init=True):
+    def __init__(self, n_hidden, activation_function='sigmoid', learning_rate=0.05, n_epochs=20,
+                 batch_size=128, min_change=1e-6, verbose=0, display_step=5, learning_function='rms_prop',
+                 early_stopping=False, bias_strategy='zeros', random_state=None, layer_type='xavier',
+                 dropout=1., scope='dense_layer'):
 
         super(AutoEncoder, self).__init__(activation_function=activation_function,
                                           learning_rate=learning_rate, n_epochs=n_epochs,
                                           batch_size=batch_size, n_hidden=n_hidden,
-                                          compression_ratio=compression_ratio, min_change=min_change,
-                                          verbose=verbose, display_step=display_step,
+                                          min_change=min_change, verbose=verbose,
+                                          display_step=display_step,
                                           learning_function=learning_function,
                                           early_stopping=early_stopping,
-                                          initial_weight_stddev=initial_weight_stddev, seed=seed,
-                                          xavier_init=xavier_init)
+                                          bias_strategy=bias_strategy,
+                                          random_state=random_state,
+                                          layer_type=layer_type, dropout=dropout,
+                                          scope=scope)
 
-    def fit(self, X, y=None, **kwargs):
+    @overrides(_SymmetricAutoEncoder)
+    def _initialize_graph(self, X, y):
         # validate X, then make it into TF structure
-        X_original = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True)
-        n_samples, n_features = X_original.shape
+        X = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True)
+        n_samples, n_features = X.shape
 
         # assign X to tf as a placeholder for now
-        self.X_placeholder = X = tf.placeholder(tf.float32, [None, n_features])
+        self.X_placeholder = tf.placeholder(DTYPE, [None, n_features])
 
         # validate floats and other params...
         self._validate_for_fit()
@@ -392,36 +303,39 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
         # set up our weight matrix. This needs to be re-initialized for every fit, since (like sklearn)
         # we want to allow for model/transformer re-fits. IF we don't reinitialize, the next input
         # either gets a warm-start or a potentially already grand-mothered weight matrix.
-        n_hidden = self.n_hidden
-        seed = self.seed
-
-        # initialize the weights
-        weights, biases, self._n_layers = _initial_weights_biases(n_hidden, n_features, self.compression_ratio,
-                                                                  self.initial_weight_stddev, seed, self.xavier_init,
-                                                                  None)  # no latent factors for this model
+        self.topography_ = SymmetricalAutoEncoderTopography(X_placeholder=self.X_placeholder,
+                                                            n_hidden=self.n_hidden,
+                                                            input_shape=n_features,
+                                                            activation=activation,
+                                                            layer_type=self.layer_type,
+                                                            dropout=self.dropout,
+                                                            scope=self.scope,
+                                                            bias_strategy=self.bias_strategy,
+                                                            random_state=self.random_state)
 
         # define the encoder, decoder functions
-        self.encoder_ = encoder = self._encoding_function(X, weights, biases, activation)
-        self.decoder_ = decoder = self._decoding_function(encoder, weights, biases, activation)
-        y_pred, y_true = decoder, X
+        y_pred, y_true = self.topography_.decode, self.X_placeholder
 
         # get loss and optimizer, minimize MSE
         cost_function = tf.reduce_mean(tf.pow(y_true - y_pred, 2))
         optimizer = learning_function(self.learning_rate).minimize(cost_function)
 
-        # do training
-        return self._train(X, X_original, weights, biases, n_samples, cost_function, optimizer)
+        return X, cost_function, optimizer
 
     @overrides(BaseAutoEncoder)
     def transform(self, X):
-        return self.sess.run(self.encoder_, feed_dict={self.X_placeholder: X})
+        check_is_fitted(self, 'topography_')
+        t = self.topography_
+        return self.sess.run(t.encode, feed_dict={self.X_placeholder: X})
 
     @overrides(ReconstructiveMixin)
     def reconstruct(self, X):
-        return self.sess.run(self.decoder_, feed_dict={self.X_placeholder: X})
+        check_is_fitted(self, 'topography_')
+        t = self.topography_
+        return self.sess.run(t.decode, feed_dict={self.X_placeholder: X})
 
 
-class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, ReconstructiveMixin):
+class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
     """An AutoEncoder is a special case of a feed-forward neural network that attempts to learn
     a compressed feature space of the input tensor, and whose output layer seeks to reconstruct
     the original input. It is, therefore, a dimensionality reduction technique, on one hand, but
@@ -436,8 +350,13 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, Reconstruct
 
     Parameters
     ----------
+    n_hidden : int or list
+        The hidden layer structure. If an int is provided, a single hidden layer is constructed,
+        with ``n_hidden`` neurons. If ``n_hidden`` is an iterable, ``len(n_hidden)`` hidden layers
+        are constructed, with as many neurons as correspond to each index, respectively.
+
     activation_function : str, optional (default='sigmoid')
-        The activation function. Should be one of PERMITTED_ACTIVATIONS.
+        The activation function. Should be one of PERMITTED_ACTIVATIONS: ('elu', 'relu', 'sigmoid', 'tanh')
 
     learning_rate : float, optional (default=0.05)
         The algorithm learning rate.
@@ -451,19 +370,6 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, Reconstruct
     batch_size : int, optional (default=128)
         The number of training examples in a single forward/backward pass. As ``batch_size``
         increases, the memory required will also increase.
-
-    n_hidden : int or list, optional (default=None)
-        The hidden layer structure. If an int is provided, a single hidden layer is constructed,
-        with ``n_hidden`` neurons. If ``n_hidden`` is an iterable, ``len(n_hidden)`` hidden layers
-        are constructed, with as many neurons as correspond to each index, respectively. If no
-        value is passed for ``n_hidden`` (default), the ``AutoEncoder`` defaults to a single hidden
-        layer of ``compression_ratio * n_features`` in order to force the network to learn a compressed
-        feature space.
-
-    compression_ratio : float, optional (default=0.6)
-        If no value is passed for ``n_hidden`` (default), the ``AutoEncoder`` defaults to a single hidden
-        layer of ``compression_ratio * n_features`` in order to force the network to learn a compressed
-        feature space. Default ``compression_ratio`` is 0.6.
 
     min_change : float, optional (default=1e-6)
         An early stopping criterion. If the delta between the last cost and the new cost
@@ -487,16 +393,27 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, Reconstruct
         If this is set to True, and the delta between the last cost and the new cost
         is less than ``min_change``, the network will stop fitting early.
 
-    initial_weight_stddev : float, optional (default=0.001)
-        The standard deviation of the initial random, normally distributed weights.
+    bias_strategy : str, optional (default='zeros')
+        The strategy for initializing the bias vector. Default is 'zeros' and will
+        initialize all bias values as zeros. The alternative is 'ones', which will
+        initialize all bias values as ones.
 
-    seed : int, optional (default=42)
-        An integer. Used to create a random seed for the weight and bias initialization.
+    random_state : int, ``np.random.RandomState`` or None, optional (default=None)
+        The numpy random state for seeding random TensorFlow variables in weight initialization.
 
-    xavier_init : bool, optional (default=True)
-        Whether to use Xavier's initialization, as referenced in [1].
+    layer_type : str
+        The type of layer, i.e., 'xavier'. This is the type of layer that
+        will be generated. One of {'xavier', 'gaussian'}
 
-    n_latent_factors : int or float, optional (default=None)
+    dropout : float, optional (default=1.0)
+        Dropout is a mechanism to prevent over-fitting a network. Dropout functions
+        by randomly dropping hidden units (and their connections) during training.
+        This prevents units from co-adapting too much.
+
+    scope : str, optional (default='dense_layer')
+        The scope used for TensorFlow variable sharing.
+
+    n_latent_factors : int or float
         The size of the latent factor layer learned by the ``VariationalAutoEncoder``
 
     eps : float, optional (default=1e-10)
@@ -531,134 +448,96 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin, Reconstruct
 
     [3] http://blog.fastforwardlabs.com/2016/08/12/introducing-variational-autoencoders-in-prose-and.html
     """
-    def __init__(self, activation_function='sigmoid', learning_rate=0.05, n_epochs=20, batch_size=128,
-                 n_hidden=None, compression_ratio=0.6, min_change=1e-6, verbose=0, display_step=5,
-                 learning_function='rms_prop', early_stopping=False, initial_weight_stddev=0.001,
-                 seed=42, xavier_init=True, n_latent_factors=None, eps=1e-10):
+    def __init__(self, n_hidden, n_latent_factors=None, activation_function='sigmoid', learning_rate=0.05,
+                 n_epochs=20, batch_size=128, min_change=1e-6, verbose=0, display_step=5, learning_function='rms_prop',
+                 early_stopping=False, bias_strategy='zeros', random_state=None, layer_type='xavier', dropout=1.,
+                 scope='dense_layer', eps=1e-10):
 
         super(VariationalAutoEncoder, self).__init__(activation_function=activation_function,
                                                      learning_rate=learning_rate, n_epochs=n_epochs,
                                                      batch_size=batch_size, n_hidden=n_hidden,
-                                                     compression_ratio=compression_ratio, min_change=min_change,
-                                                     verbose=verbose, display_step=display_step,
-                                                     learning_function=learning_function, early_stopping=early_stopping,
-                                                     initial_weight_stddev=initial_weight_stddev, seed=seed,
-                                                     xavier_init=xavier_init)
+                                                     min_change=min_change, verbose=verbose,
+                                                     display_step=display_step,
+                                                     learning_function=learning_function,
+                                                     early_stopping=early_stopping,
+                                                     bias_strategy=bias_strategy,
+                                                     random_state=random_state,
+                                                     layer_type=layer_type, dropout=dropout,
+                                                     scope=scope)
 
-        # the number of latent factors to learn
+        # the only VAE-specific params
         self.n_latent_factors = n_latent_factors
+        self.eps = eps
 
-    def fit(self, X, y=None, **kwargs):
+    @overrides(_SymmetricAutoEncoder)
+    def _initialize_graph(self, X, y):
         # validate X, then make it into TF structure
-        X_original = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True)
-        n_samples, n_features = X_original.shape
+        X = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True)
+        n_samples, n_features = X.shape
 
         # assign X to tf as a placeholder for now
-        self.X_placeholder = X = tf.placeholder(tf.float32, [None, n_features])
+        self.X_placeholder = tf.placeholder(DTYPE, [None, n_features])
 
         # validate floats and other params...
         self._validate_for_fit()
+        eps = _validate_float(self, 'eps')
         activation, learning_function = _validate_activation_optimization(self.activation_function,
                                                                           self.learning_function)
-
-        # validate n_latent_factors
-        if isinstance(self.n_latent_factors, (int, np.int)):
-            n_latent_factors = _validate_positive_integer(self, 'n_latent_factors')
-        else:
-            # otherwise, if it's a float, we are going to compress the n_features by that amount
-            if isinstance(self.n_latent_factors, (float, np.float)):
-                compress = _validate_float(self, 'n_latent_factors', 1.0)
-            else:
-                compress = self.compression_ratio  # this is already validated
-            n_latent_factors = max(2, int(round(compress * n_features)))
 
         # set up our weight matrix. This needs to be re-initialized for every fit, since (like sklearn)
         # we want to allow for model/transformer re-fits. IF we don't reinitialize, the next input
         # either gets a warm-start or a potentially already grand-mothered weight matrix.
-        n_hidden = self.n_hidden
-        seed = self.seed
-        self.random_state_ = get_random_state(seed)
-
-        # initialize the weights
-        weights, biases, self._n_layers = _initial_weights_biases(n_hidden, n_features, self.compression_ratio,
-                                                                  self.initial_weight_stddev, seed, self.xavier_init,
-                                                                  n_latent_factors)
-
-        # define the encoder, decoder functions
-        self.z_mean_, self.z_log_sigma_sq_ = self._encoding_function(X, weights, biases, activation)  # encode
-        epsilon = tf.random_normal([self.batch_size, n_latent_factors], 0, 1, dtype=DTYPE, seed=seed)  # one sample
-        self.z_ = tf.add(self.z_mean_, tf.multiply(tf.sqrt(tf.exp(self.z_log_sigma_sq_)), epsilon))
-        self.X_reconstruction_mean_ = self._decoding_function(self.z_, weights, biases, activation)  # decode
+        self.topography_ = SymmetricalVAETopography(X_placeholder=self.X_placeholder,
+                                                    n_hidden=self.n_hidden,
+                                                    input_shape=n_features,
+                                                    activation=activation,
+                                                    n_latent_factors=self.n_latent_factors,
+                                                    layer_type=self.layer_type,
+                                                    dropout=self.dropout,
+                                                    scope=self.scope,
+                                                    bias_strategy=self.bias_strategy,
+                                                    random_state=self.random_state)
 
         # Create the loss function optimizer. This dual-part loss function is adapted from code found at [2]
         # 1.) The reconstruction loss (the negative log probability of the input under the reconstructed
         #     Bernoulli distribution induced by the decoder in the data space). This can be interpreted as the number
         #     of "nats" required for reconstructing the input when the activation in latent is given.
-        reconstruction_loss = -tf.reduce_sum(X * tf.log(self.eps + self.X_reconstruction_mean_)
-                                             + (1 - X) * tf.log(self.eps + 1 - self.X_reconstruction_mean_), 1)
+        decoder = self.topography_.decode
+        reconstruction_loss = cross_entropy(self.X_placeholder, decoder, eps=eps)
 
         # 2.) The latent loss, which is defined as the Kullback Leibler divergence between the distribution in
         #     latent space induced by the encoder on the data and some prior. This acts as a kind of regularizer.
         #     This can be interpreted as the number of "nats" required for transmitting the the latent space
         #     distribution given the prior.
-        latent_loss = -0.5 * tf.reduce_sum(1 + self.z_log_sigma_sq_ -
-                                           tf.square(self.z_mean_) - tf.exp(self.z_log_sigma_sq_), 1)
-        cost_function = tf.reduce_mean(reconstruction_loss + latent_loss)
+        latent_loss = kullback_leibler(self.topography_.z_mean_, self.topography_.z_log_sigma_)
+
+        # define optimizer and cost function
+        cost_function = tf.reduce_mean(reconstruction_loss + latent_loss, name='VAE_cost')
         optimizer = learning_function(self.learning_rate).minimize(cost_function)
 
-        # assign some instance attrs
-        self.n_latent_factors_ = n_latent_factors  # set the final version used
-
-        # actually do training
-        return self._train(X, X_original, weights, biases, n_samples, cost_function, optimizer)
-
-    @overrides(_SymmetricAutoEncoder)
-    def _encoding_function(self, x, weights, biases, activation):
-        tensor_product = self._encode_decode_from_stages(x, weights, biases, activation, 'encode')
-
-        # the variational auto-encoder has a second step, which is to compute the means & SDs of the layer output
-        mn, sig = 'out_mean_encode', 'out_log_sigma_encode'
-        z_mean = tf.add(tf.matmul(tensor_product, weights[mn]), biases[mn])
-        z_log_sigma_sq = tf.add(tf.matmul(tensor_product, weights[sig]), biases[sig])
-
-        return z_mean, z_log_sigma_sq
-
-    @overrides(_SymmetricAutoEncoder)
-    def _decoding_function(self, x, weights, biases, activation):
-        tensor_product = self._encode_decode_from_stages(x, weights, biases, activation, 'decode')
-
-        # the variational auto-encoder has a second step, which is to compute the means & SDs of the layer output
-        mn, sig = 'out_mean_decode', 'out_log_sigma_decode'
-
-        # should we allow other activations? Or only sigmoid since this is a Bernoulli loss?
-        X_reconstruction_mean = tf.nn.sigmoid(tf.add(tf.matmul(tensor_product, weights[mn]), biases[mn]))
-        return X_reconstruction_mean
+        # return to actually do training
+        return X, cost_function, optimizer
 
     @overrides(BaseAutoEncoder)
     def transform(self, X):
-        check_is_fitted(self, 'weights_')
-        return self.sess.run(self.z_mean_, feed_dict={self.X_placeholder: X})
+        check_is_fitted(self, 'topography_')
+        t = self.topography_
+        return self.sess.run([t.z_mean_, t.z_log_sigma_], feed_dict={self.X_placeholder: X})
 
     @overrides(GenerativeMixin)
-    def generate(self, n=1, z_mu=None):
-        check_is_fitted(self, 'weights_')
+    def generate(self, z_mu=None):
+        check_is_fitted(self, 'topography_')
+        t = self.topography_
 
-        if n != 1 and z_mu is not None:
-            raise ValueError('either z_mu or n must be provided, but not both')
+        # see https://github.com/fastforwardlabs/vae-tf/blob/master/vae.py#L194
+        feed_dict = dict()
+        if z_mu is not None:
+            is_tensor = lambda x: hasattr(x, 'eval')
+            z_mu = (self.sess.run(z_mu) if is_tensor(z_mu) else z_mu)
+            feed_dict.update({t.z_: z_mu})
+        else:
+            feed_dict.update({t.z_: self.random_state.rand(self.n_latent_factors)})
 
-        out = []
-        for i in range(n):
-            if z_mu is None:
-                z_mu = self.random_state_.normal(self.n_latent_factors_)
-
-            # run with the random selected mean
-            out.append(self.sess.run(self.X_reconstruction_mean_, feed_dict={self.z_: z_mu}))
-
-        # treat like vectorized... if we want to only generate one example, just return the 0th index
-        return out[0] if len(out) == 1 else np.asarray(out)
-
-    @overrides(ReconstructiveMixin)
-    def reconstruct(self, X):
-        check_is_fitted(self, 'weights_')
-        return self.sess.run(self.X_reconstruction_mean_,
-                             feed_dict={self.X_placeholder: X})
+        # if z_mu is not provided, it defaults to drawing from the priors:
+        # z ~ N(0, I)
+        return self.sess.run(t.decode, feed_dict=feed_dict)

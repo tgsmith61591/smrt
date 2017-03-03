@@ -5,21 +5,45 @@
 # Utils for autoencoders
 from __future__ import print_function, absolute_import, division
 import tensorflow as tf
-import numpy as np
-from . import base
 
 __all__ = [
-    'xavier_initialization'
+    'cross_entropy',
+    'kullback_leibler'
 ]
 
 
-def xavier_initialization(shape, seed, c=1):
-    # Xavier initialization of network weights
-    # https://stackoverflow.com/questions/33640581/how-to-do-xavier-initialization-on-tensorflow
-    # see: http://jmlr.org/proceedings/papers/v9/glorot10a/glorot10a.pdf
-    fan_in, fan_out = shape  # will raise ValueError if unpacks incorrectly
-    low = -c * np.sqrt(6.0 / (fan_in + fan_out))
-    high = c * np.sqrt(6.0 / (fan_in + fan_out))
+def cross_entropy(actual, predicted, eps=1e-10):
+    """Binary cross entropy
 
-    return tf.random_uniform(shape=[fan_in, fan_out], minval=low, maxval=high,
-                             dtype=base.DTYPE, seed=seed)
+    Parameters
+    ----------
+    actual : TensorFlow ``Tensor``
+        Actual
+
+    predicted : TensorFlow ``Tensor``
+        Predicted
+
+    eps : float, optional (default=1e-10)
+        The amount to offset difference in ``predicted`` and ``actual``
+        to avoid any log(0) operations.
+    """
+    # clip to avoid nan
+    p_ = tf.clip_by_value(predicted, eps, 1 - eps)
+    return -tf.reduce_sum(actual * tf.log(p_) + (1 - actual) * tf.log(1 - p_), 1)
+
+
+def kullback_leibler(mu, log_sigma):
+    """Gaussian Kullback-Leibler divergence:
+
+        KL(q | p)
+
+    Parameters
+    ----------
+    mu : TensorFlow ``Tensor``
+        The z_mean tensor.
+
+    log_sigma : TensorFlow ``Tensor``
+        The z_log_sigma tensor.
+    """
+    # -0.5 * (1 + log(sigma ** 2) - mu ** 2 - sigma ** 2)
+    return -0.5 * tf.reduce_sum(1 + (2 * log_sigma) - (mu ** 2) - tf.exp(2 * log_sigma), 1)
