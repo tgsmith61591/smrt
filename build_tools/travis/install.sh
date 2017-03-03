@@ -55,9 +55,9 @@ if [[ "$DISTRIB" == "conda" ]]; then
     pip install coveralls
 
     # we have to make sure we install the CPU version otherwise we get into GCC/G++ issues...
-    if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]]; then
+    if [[ "$PYTHON_VERSION" == "2.7" ]]; then
       pip install https://storage.googleapis.com/tensorflow/linux/cpu/tensorflow-0.7.1-cp27-none-linux_x86_64.whl;
-    elif [[ "$TRAVIS_PYTHON_VERSION" == "3.5" ]]; then
+    elif [[ "$PYTHON_VERSION" == "3.5" ]]; then
       pip install https://storage.googleapis.com/tensorflow/linux/cpu/tensorflow-0.7.1-cp35-none-linux_x86_64.whl;
     fi
 
