@@ -1,7 +1,7 @@
 [![Build status](https://travis-ci.org/tgsmith61591/smrt.svg?branch=master)](https://travis-ci.org/tgsmith61591/smrt)
 [![Coverage Status](https://coveralls.io/repos/github/tgsmith61591/smrt/badge.svg?branch=master)](https://coveralls.io/github/tgsmith61591/smrt?branch=master)
 ![Supported versions](https://img.shields.io/badge/python-2.7-blue.svg) 
-![Supported versions](https://img.shields.io/badge/python-3.4-blue.svg)
+![Supported versions](https://img.shields.io/badge/python-3.5-blue.svg)
 
 
 # Synthetic Minority Reconstruction Technique (SMRT)
