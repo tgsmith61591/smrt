@@ -30,7 +30,7 @@ def _chain_layers(layers, tensor):
 
 class _BaseSymmetricalTopography(BaseEstimator):
     def __init__(self, X_placeholder, n_hidden, input_shape, activation, layer_type,
-                 dropout, scope, bias_strategy, random_state, **kwargs):
+                 dropout, bias_strategy, random_state, **kwargs):
         # validate layer dims
         if not isinstance(n_hidden, list):
             if not isinstance(n_hidden, (int, np.int)):
@@ -52,14 +52,13 @@ class _BaseSymmetricalTopography(BaseEstimator):
                                                            LayerClass=LayerClass,
                                                            activation=activation,
                                                            dropout=dropout,
-                                                           scope=scope,
                                                            bias_strategy=bias_strategy,
                                                            random_state=random_state,
                                                            **kwargs)
 
     @abstractmethod
     def _initialize_layers(self, X_placeholder, n_hidden, input_shape, LayerClass, activation,
-                           dropout, scope, bias_strategy, random_state, **kwargs):
+                           dropout, bias_strategy, random_state, **kwargs):
         """Initialize all the layers"""
         # We know it's a list. There will be two times as many layers as the length of n_hidden:
         # n_hidden * encode layer, and n_hidden * decode layer. Since the dimensions are
@@ -98,9 +97,6 @@ class SymmetricalAutoEncoderTopography(_BaseSymmetricalTopography):
         by randomly dropping hidden units (and their connections) during training.
         This prevents units from co-adapting too much.
 
-    scope : str, optional (default='dense_layer')
-        The scope used for TensorFlow variable sharing.
-
     bias_strategy : str, optional (default='zeros')
         The strategy for initializing the bias vector. Default is 'zeros' and will
         initialize all bias values as zeros. The alternative is 'ones', which will
@@ -119,20 +115,19 @@ class SymmetricalAutoEncoderTopography(_BaseSymmetricalTopography):
         The decode layers
     """
     def __init__(self, X_placeholder, n_hidden, input_shape, activation, layer_type='xavier', dropout=1.,
-                 scope='dense_layer', bias_strategy='zeros', random_state=None):
+                 bias_strategy='zeros', random_state=None):
         super(SymmetricalAutoEncoderTopography, self).__init__(X_placeholder=X_placeholder,
                                                                n_hidden=n_hidden,
                                                                input_shape=input_shape,
                                                                activation=activation,
                                                                layer_type=layer_type,
                                                                dropout=dropout,
-                                                               scope=scope,
                                                                bias_strategy=bias_strategy,
                                                                random_state=random_state)
 
     @overrides(_BaseSymmetricalTopography)
     def _initialize_layers(self, X_placeholder, n_hidden, input_shape, LayerClass, activation,
-                           dropout, scope, bias_strategy, random_state, **kwargs):
+                           dropout, bias_strategy, random_state, **kwargs):
         n_hidden.insert(0, input_shape)
         encode_dimensions = list(zip(n_hidden[:-1], n_hidden[1:]))
         decode_dimensions = [(v, k) for k, v in reversed(encode_dimensions)]  # pyramid back to n_features
@@ -148,7 +143,7 @@ class SymmetricalAutoEncoderTopography(_BaseSymmetricalTopography):
             enc_dec_layers = tuple(
                 LayerClass(fan_in=dims[0], fan_out=dims[1],
                            activation=activation, dropout=dropout,
-                           bias_strategy=bias_strategy, scope=scope,
+                           bias_strategy=bias_strategy,
                            seed=next_seed(random_state))
                 for dims in (encode_fan, decode_fan)
             )
@@ -194,9 +189,6 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
         by randomly dropping hidden units (and their connections) during training.
         This prevents units from co-adapting too much.
 
-    scope : str, optional (default='dense_layer')
-        The scope used for TensorFlow variable sharing.
-
     bias_strategy : str, optional (default='zeros')
         The strategy for initializing the bias vector. Default is 'zeros' and will
         initialize all bias values as zeros. The alternative is 'ones', which will
@@ -215,7 +207,7 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
         The decode layers
     """
     def __init__(self, X_placeholder, n_hidden, input_shape, activation, n_latent_factors, layer_type='xavier',
-                 dropout=1., scope='dense_layer', bias_strategy='zeros', random_state=None):
+                 dropout=1., bias_strategy='zeros', random_state=None):
 
         # validate n_latent_factors
         self.n_latent_factors = n_latent_factors
@@ -236,7 +228,6 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
                                                        activation=activation,
                                                        layer_type=layer_type,
                                                        dropout=dropout,
-                                                       scope=scope,
                                                        bias_strategy=bias_strategy,
                                                        random_state=random_state,
                                                        **{'n_latent_factors': self.n_latent_factors})
@@ -247,8 +238,8 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
             return tf.add(mu, tf.multiply(epsilon, tf.exp(log_sigma)))  # N(mu, I * sigma**2)
 
     @overrides(_BaseSymmetricalTopography)
-    def _initialize_layers(self, X_placeholder, n_hidden, input_shape, LayerClass, activation, dropout,
-                           scope, bias_strategy, random_state, **kwargs):
+    def _initialize_layers(self, X_placeholder, n_hidden, input_shape, LayerClass, activation,
+                           dropout, bias_strategy, random_state, **kwargs):
         n_latent = kwargs.pop('n_latent_factors')  # will be there because we're injecting it in the super constructor
 
         # AE makes it easy to string layers together, but the VAE is a bit more
@@ -266,7 +257,7 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
         encoding_layers = [
             LayerClass(fan_in=fan_in, fan_out=fan_out,
                        activation=activation, dropout=dropout,
-                       bias_strategy=bias_strategy, scope=scope,
+                       bias_strategy=bias_strategy,
                        seed=next_seed(random_state))
             for fan_in, fan_out in encode_dimensions
         ]
@@ -278,9 +269,9 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
         # z ~ N(z_mean, exp(z_log_sigma) ** 2)
         z_mean, z_log_sigma = tuple(
             LayerClass(fan_in=n_hidden[-1], fan_out=n_latent, activation=activation,
-                       dropout=dropout, bias_strategy=bias_strategy, scope=scp,
+                       dropout=dropout, bias_strategy=bias_strategy,
                        seed=next_seed(random_state)).feed_forward(encode)  # operate on encode operation
-            for scp in ('z_mean', 'z_log_sigma')
+            for _ in ('z_mean', 'z_log_sigma')  # just because easier to debug...
         )
 
         # kingma & welling: only 1 draw necessary
@@ -292,7 +283,7 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
         decoding_layers = [
             LayerClass(fan_in=fan_in, fan_out=fan_out,
                        activation=activation, dropout=dropout,
-                       bias_strategy=bias_strategy, scope=scope,
+                       bias_strategy=bias_strategy,
                        seed=next_seed(random_state))
             for fan_in, fan_out in decode_dimensions[:-1]
         ]
@@ -301,7 +292,7 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
         fi, fo = decode_dimensions[-1]  # fee, fi, fo... heh
         decoding_layers.append(LayerClass(fan_in=fi, fan_out=fo,
                                           activation=tf.nn.sigmoid, dropout=dropout,
-                                          bias_strategy=bias_strategy, scope=scope,
+                                          bias_strategy=bias_strategy,
                                           seed=next_seed(random_state)))
 
         decode = _chain_layers(decoding_layers, z)  # generative function
@@ -314,12 +305,14 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
 
 class _BaseDenseLayer(six.with_metaclass(ABCMeta, BaseEstimator)):
     """Base dense layer"""
-    def __init__(self, fan_in, fan_out, activation, dropout, scope, bias_strategy, seed):
+    _WEIGHTS_NAME = 'weights'
+    _BIASES_NAME = 'biases'
+
+    def __init__(self, fan_in, fan_out, activation, dropout, bias_strategy, seed):
         self.fan_in = fan_in
         self.fan_out = fan_out
         self.activation = activation
-        self.dropout = tf.placeholder_with_default(dropout, shape=[], name='dropout')  # make placeholder
-        self.scope = scope
+        self.dropout = dropout
         self.seed = seed
 
         # validate strategy
@@ -334,8 +327,7 @@ class _BaseDenseLayer(six.with_metaclass(ABCMeta, BaseEstimator)):
         self.w_ = tf.nn.dropout(w, self.dropout)
 
     def feed_forward(self, tensor):
-        with tf.name_scope(self.scope):
-            return self.activation(tf.add(tf.matmul(tensor, self.w_), self.b_))
+        return self.activation(tf.add(tf.matmul(tensor, self.w_), self.b_))
 
     @abstractmethod
     def _initialize_weights_biases(self):
@@ -360,13 +352,8 @@ class GaussianDenseLayer(_BaseDenseLayer):
         The type of layer, i.e., 'xavier'. This is the type of layer that
         will be generated. One of {'xavier', 'gaussian'}
 
-    dropout : float, optional (default=1.0)
-        Dropout is a mechanism to prevent over-fitting a network. Dropout functions
-        by randomly dropping hidden units (and their connections) during training.
-        This prevents units from co-adapting too much.
-
-    scope : str, optional (default='dense_layer')
-        The scope used for TensorFlow variable sharing.
+    dropout : TensorFlow Placeholder
+        The placeholder for the dropout
 
     bias_strategy : str, optional (default='zeros')
         The strategy for initializing the bias vector. Default is 'zeros' and will
@@ -381,10 +368,9 @@ class GaussianDenseLayer(_BaseDenseLayer):
     ----------
     [1] Based on code at https://github.com/fastforwardlabs/vae-tf
     """
-    def __init__(self, fan_in, fan_out, activation, dropout=1., scope='dense_layer', bias_strategy='zeros', seed=42):
+    def __init__(self, fan_in, fan_out, activation, dropout, bias_strategy='zeros', seed=42):
         super(GaussianDenseLayer, self).__init__(fan_in=fan_in, fan_out=fan_out, activation=activation,
-                                                 dropout=dropout, scope=scope, bias_strategy=bias_strategy,
-                                                 seed=seed)
+                                                 dropout=dropout, bias_strategy=bias_strategy, seed=seed)
 
     @overrides(_BaseDenseLayer)
     def _initialize_weights_biases(self):
@@ -394,8 +380,8 @@ class GaussianDenseLayer(_BaseDenseLayer):
         initial_w = tf.random_normal([self.fan_in, self.fan_out], stddev=sd, seed=self.seed, dtype=DTYPE)
         initial_b = self.bias_strategy([self.fan_out], dtype=DTYPE)
 
-        return (tf.Variable(initial_w, trainable=True, name='weights'),
-                tf.Variable(initial_b, trainable=True, name='biases'))
+        return (tf.Variable(initial_w, trainable=True, name=_BaseDenseLayer._WEIGHTS_NAME),
+                tf.Variable(initial_b, trainable=True, name=_BaseDenseLayer._BIASES_NAME))
 
 
 class XavierDenseLayer(_BaseDenseLayer):
@@ -416,13 +402,8 @@ class XavierDenseLayer(_BaseDenseLayer):
         The type of layer, i.e., 'xavier'. This is the type of layer that
         will be generated. One of {'xavier', 'gaussian'}
 
-    dropout : float, optional (default=1.0)
-        Dropout is a mechanism to prevent over-fitting a network. Dropout functions
-        by randomly dropping hidden units (and their connections) during training.
-        This prevents units from co-adapting too much.
-
-    scope : str, optional (default='dense_layer')
-        The scope used for TensorFlow variable sharing.
+    dropout : TensorFlow Placeholder
+        The placeholder for the dropout
 
     bias_strategy : str, optional (default='zeros')
         The strategy for initializing the bias vector. Default is 'zeros' and will
@@ -437,10 +418,9 @@ class XavierDenseLayer(_BaseDenseLayer):
     ----------
     [1] Based on code at https://github.com/fastforwardlabs/vae-tf
     """
-    def __init__(self, fan_in, fan_out, activation, dropout=1., scope='dense_layer', bias_strategy='zeros', seed=42):
+    def __init__(self, fan_in, fan_out, activation, dropout, l2_penalty=0.0001, bias_strategy='zeros', seed=42):
         super(XavierDenseLayer, self).__init__(fan_in=fan_in, fan_out=fan_out, activation=activation,
-                                               dropout=dropout, scope=scope, seed=seed,
-                                               bias_strategy=bias_strategy)
+                                               dropout=dropout, seed=seed, bias_strategy=bias_strategy)
 
     @overrides(_BaseDenseLayer)
     def _initialize_weights_biases(self):
@@ -452,8 +432,8 @@ class XavierDenseLayer(_BaseDenseLayer):
                                       maxval=high, dtype=DTYPE, seed=self.seed)
         initial_b = self.bias_strategy([self.fan_out], dtype=DTYPE)
 
-        return (tf.Variable(initial_w, trainable=True, name='weights'),
-                tf.Variable(initial_b, trainable=True, name='biases'))
+        return (tf.Variable(initial_w, trainable=True, name=_BaseDenseLayer._WEIGHTS_NAME),
+                tf.Variable(initial_b, trainable=True, name=_BaseDenseLayer._BIASES_NAME))
 
 # these are strategy/type mappings for mapping a str to a callable
 PERMITTED_LAYER_TYPES = {

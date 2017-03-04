@@ -27,7 +27,7 @@ MIN_N_SAMPLES = base.MIN_N_SAMPLES
 def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, balance_ratio=0.2,
                  activation_function='sigmoid', learning_rate=0.05, n_epochs=20, batch_size=128, min_change=1e-6,
                  verbose=0, display_step=5, learning_function='rms_prop', early_stopping=False, bias_strategy='zeros',
-                 random_state=DEFAULT_SEED, layer_type='xavier', dropout=1., scope='dense_layer',
+                 random_state=DEFAULT_SEED, layer_type='xavier', dropout=1., l2_penalty=0.0001,
                  eps=1e-10, shuffle=True, generate_args={}):
     """SMRT (Sythetic Minority Reconstruction Technique) is the younger, more sophisticated cousin to
     SMOTE (Synthetic Minority Oversampling TEchnique). Using variational auto-encoders, SMRT learns the
@@ -71,7 +71,8 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
         where 0 < ``ratio`` <= 1
 
     activation_function : str, optional (default='sigmoid')
-        The activation function. Should be one of PERMITTED_ACTIVATIONS: ('elu', 'relu', 'sigmoid', 'tanh')
+        The activation function. Should be one of PERMITTED_ACTIVATIONS:
+        ('elu', 'identity', 'relu', 'sigmoid', 'tanh')
 
     learning_rate : float, optional (default=0.05)
         The algorithm learning rate.
@@ -124,8 +125,8 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
         by randomly dropping hidden units (and their connections) during training.
         This prevents units from co-adapting too much.
 
-    scope : str, optional (default='dense_layer')
-        The scope used for TensorFlow variable sharing.
+    l2_penalty : float or None, optional (default=0.0001)
+        The L2 penalty (regularization term) parameter.
 
     eps : float, optional (default=1e-10)
         A small amount of noise to add to the loss to avoid a potential computation of
@@ -180,7 +181,7 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
                                          learning_function=learning_function,
                                          early_stopping=early_stopping, bias_strategy=bias_strategy,
                                          random_state=random_state, layer_type=layer_type, dropout=dropout,
-                                         scope=scope, eps=eps)
+                                         l2_penalty=l2_penalty, eps=eps)
 
         # transform label
         transformed_label = le.transform([label])[0]
