@@ -19,13 +19,13 @@ if [[ "$DISTRIB" == "conda" ]]; then
     if [[ ! -f miniconda.sh ]]
         then
         if [[ "$PYTHON_VERSION" == "2.7" ]]; then
-            wget https://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh -O miniconda.sh;
+            wget http://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh -O miniconda.sh;
         fi
-        if [[ "$PYTHON_VERSION" == "3.4" ]]; then
-            wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh;
+        if [[ "$PYTHON_VERSION" == "3.5" ]]; then
+            wget http://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh;
         fi
     fi
-    chmod +x miniconda.sh && ./miniconda.sh -b -p $HOME/miniconda
+    chmod +x miniconda.sh && bash miniconda.sh -b -p $HOME/miniconda
     export PATH="$HOME/miniconda/bin:$PATH"
     cd ..
 
@@ -48,8 +48,8 @@ if [[ "$DISTRIB" == "conda" ]]; then
     # we have to make sure we install the CPU version otherwise we get into GCC/G++ issues...
     if [[ "$PYTHON_VERSION" == "2.7" ]]; then
       pip install https://storage.googleapis.com/tensorflow/linux/cpu/tensorflow-0.7.1-cp27-none-linux_x86_64.whl;
-    elif [[ "$PYTHON_VERSION" == "3.4" ]]; then
-      pip install https://storage.googleapis.com/tensorflow/linux/cpu/tensorflow-0.7.1-cp34-none-linux_x86_64.whl;
+    elif [[ "$PYTHON_VERSION" == "3.5" ]]; then
+      pip install http://ci.tensorflow.org/view/Nightly/job/nightly-python35-linux-cpu/lastSuccessfulBuild/artifact/pip_test/whl/tensorflow-1.0.0rc2-cp35-cp35m-linux_x86_64.whl;
     fi
 
     # Install nose-timer via pip

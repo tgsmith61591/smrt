@@ -15,7 +15,7 @@ from abc import ABCMeta, abstractmethod
 
 from .layer import SymmetricalAutoEncoderTopography, SymmetricalVAETopography, _BaseDenseLayer
 from .base import BaseAutoEncoder, ReconstructiveMixin, GenerativeMixin, _validate_float, DTYPE
-from ..utils import overrides, get_random_state, next_seed
+from ..utils import overrides, get_random_state
 from ._ae_utils import cross_entropy, kullback_leibler
 
 __all__ = [
@@ -25,6 +25,7 @@ __all__ = [
 
 
 DEFAULT_L2 = 0.0001
+DEFAULT_DROPOUT = 1.
 
 # this dict maps all the supported activation functions to the tensorflow
 # equivalent functions for the session model training. It also maps all the
@@ -71,7 +72,7 @@ def _validate_activation_optimization(activation_function, learning_function):
     return activation, learning_function
 
 
-class _SymmetricAutoEncoder(BaseAutoEncoder):
+class _SymmetricAutoEncoder(six.with_metaclass(ABCMeta, BaseAutoEncoder)):
     """Base class for the two provided autoencoders, which are architecturally symmetric
     in terms of hidden layers. The encode/decode functions will not work for non-symmetrically-architected
     neural networks.
@@ -112,12 +113,12 @@ class _SymmetricAutoEncoder(BaseAutoEncoder):
         return cost_function
 
     def fit(self, X, y=None, **kwargs):
-        X, cost_function, optimizer = self._initialize_graph(X, y)
+        X, cost_function, optimizer, dropout = self._initialize_graph(X, y)
 
         # do training
-        return self._train(self.X_placeholder, X, cost_function, optimizer)
+        return self._train(self.X_placeholder, X, cost_function, optimizer, dropout)
 
-    def _train(self, X_placeholder, X_original, cost_function, optimizer):
+    def _train(self, X_placeholder, X_original, cost_function, optimizer, dropout):
         # initialize global vars for tf - replace them if they already exist
         init = tf.global_variables_initializer()
         self.clean_session()
@@ -153,7 +154,7 @@ class _SymmetricAutoEncoder(BaseAutoEncoder):
                 assert m <= self.batch_size and m != 0  # sanity check
 
                 # train the batch - runs optimization op (backprop) and cost op (to get loss value)
-                _, c = sess.run([optimizer, cost_function], feed_dict={X_placeholder: chunk})
+                _, c = sess.run([optimizer, cost_function], feed_dict={X_placeholder: chunk, dropout: self.dropout})
 
             # add the time to the times array to compute average later
             epoch_time = time.time() - start_time
@@ -271,11 +272,8 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
 
     Attributes
     ----------
-    weights_ : dict
-        The weights. This a dictionary that keys encode and decode layers with the suffix 'encode' or 'decode'
-
-    biases_ : dict
-        The biases. This a dictionary that keys encode and decode layers with the suffix 'encode' or 'decode'
+    topography_ : ``smrt.autoencode.layer._BaseSymmetricalTopography``
+        The structure of hidden layers, weights and biases.
 
     train_cost_ : float
         The final cost as a result of the training procedure on the training examples.
@@ -292,7 +290,7 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
     def __init__(self, n_hidden, activation_function='sigmoid', learning_rate=0.05, n_epochs=20,
                  batch_size=128, min_change=1e-6, verbose=0, display_step=5, learning_function='rms_prop',
                  early_stopping=False, bias_strategy='zeros', random_state=None, layer_type='xavier',
-                 dropout=1., l2_penalty=DEFAULT_L2):
+                 dropout=DEFAULT_DROPOUT, l2_penalty=DEFAULT_L2):
 
         super(AutoEncoder, self).__init__(activation_function=activation_function,
                                           learning_rate=learning_rate, n_epochs=n_epochs,
@@ -312,11 +310,12 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
         X = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True)
         n_samples, n_features = X.shape
 
-        # assign X to tf as a placeholder for now
-        self.X_placeholder = tf.placeholder(DTYPE, [None, n_features])
-
         # validate floats and other params...
         self._validate_for_fit()
+
+        # assign X to tf as a placeholder for now
+        self.X_placeholder = tf.placeholder(DTYPE, [None, n_features])
+        dropout = tf.placeholder_with_default(DEFAULT_DROPOUT, shape=[], name='dropout')  # make placeholder
         activation, learning_function = _validate_activation_optimization(self.activation_function,
                                                                           self.learning_function)
 
@@ -328,7 +327,7 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
                                                             input_shape=n_features,
                                                             activation=activation,
                                                             layer_type=self.layer_type,
-                                                            dropout=self.dropout,
+                                                            dropout=dropout,
                                                             bias_strategy=self.bias_strategy,
                                                             random_state=self.random_state)
 
@@ -339,7 +338,7 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
         cost_function = tf.reduce_mean(tf.pow(y_true - y_pred, 2))
         optimizer = learning_function(self.learning_rate).minimize(cost_function)
 
-        return X, cost_function, optimizer
+        return X, cost_function, optimizer, dropout
 
     @overrides(BaseAutoEncoder)
     def transform(self, X):
@@ -450,11 +449,8 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
 
     Attributes
     ----------
-    weights_ : dict
-        The weights. This a dictionary that keys encode and decode layers with the suffix 'encode' or 'decode'
-
-    biases_ : dict
-        The biases. This a dictionary that keys encode and decode layers with the suffix 'encode' or 'decode'
+    topography_ : ``smrt.autoencode.layer._BaseSymmetricalTopography``
+        The structure of hidden layers, weights and biases.
 
     train_cost_ : float
         The final cost as a result of the training procedure on the training examples.
@@ -470,8 +466,8 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
     """
     def __init__(self, n_hidden, n_latent_factors, activation_function='sigmoid', learning_rate=0.05,
                  n_epochs=20, batch_size=128, min_change=1e-6, verbose=0, display_step=5, learning_function='rms_prop',
-                 early_stopping=False, bias_strategy='zeros', random_state=None, layer_type='xavier', dropout=1.,
-                 l2_penalty=DEFAULT_L2, eps=1e-10):
+                 early_stopping=False, bias_strategy='zeros', random_state=None, layer_type='xavier',
+                 dropout=DEFAULT_DROPOUT, l2_penalty=DEFAULT_L2, eps=1e-10):
 
         super(VariationalAutoEncoder, self).__init__(activation_function=activation_function,
                                                      learning_rate=learning_rate, n_epochs=n_epochs,
@@ -495,12 +491,13 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
         X = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True)
         n_samples, n_features = X.shape
 
-        # assign X to tf as a placeholder for now
-        self.X_placeholder = tf.placeholder(DTYPE, [None, n_features])
-
         # validate floats and other params...
         self._validate_for_fit()
         eps = _validate_float(self, 'eps')
+
+        # assign X to tf as a placeholder for now
+        self.X_placeholder = tf.placeholder(DTYPE, [None, n_features])
+        dropout = tf.placeholder_with_default(DEFAULT_DROPOUT, shape=[], name='dropout')  # make placeholder
         activation, learning_function = _validate_activation_optimization(self.activation_function,
                                                                           self.learning_function)
 
@@ -513,7 +510,7 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
                                                     activation=activation,
                                                     n_latent_factors=self.n_latent_factors,
                                                     layer_type=self.layer_type,
-                                                    dropout=self.dropout,
+                                                    dropout=dropout,
                                                     bias_strategy=self.bias_strategy,
                                                     random_state=self.random_state)
 
@@ -535,7 +532,7 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
         optimizer = learning_function(self.learning_rate).minimize(cost_function)
 
         # return to actually do training
-        return X, cost_function, optimizer
+        return X, cost_function, optimizer, dropout
 
     @overrides(BaseAutoEncoder)
     def transform(self, X):
@@ -556,7 +553,7 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
             is_tensor = lambda x: hasattr(x, 'eval')
             z_mu = (self.sess.run(z_mu) if is_tensor(z_mu) else z_mu)
         else:
-            z_mu = self.random_state.normal(size=(n, self.n_latent_factors), **nrm_args)
+            z_mu = get_random_state(self.random_state).normal(size=(n, self.n_latent_factors), **nrm_args)
 
         # if z_mu is not provided, it defaults to drawing from the priors:
         # z ~ N(0, I)

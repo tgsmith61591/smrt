@@ -312,7 +312,7 @@ class _BaseDenseLayer(six.with_metaclass(ABCMeta, BaseEstimator)):
         self.fan_in = fan_in
         self.fan_out = fan_out
         self.activation = activation
-        self.dropout = tf.placeholder_with_default(dropout, shape=[], name='dropout')  # make placeholder
+        self.dropout = dropout
         self.seed = seed
 
         # validate strategy
@@ -352,10 +352,8 @@ class GaussianDenseLayer(_BaseDenseLayer):
         The type of layer, i.e., 'xavier'. This is the type of layer that
         will be generated. One of {'xavier', 'gaussian'}
 
-    dropout : float, optional (default=1.0)
-        Dropout is a mechanism to prevent over-fitting a network. Dropout functions
-        by randomly dropping hidden units (and their connections) during training.
-        This prevents units from co-adapting too much.
+    dropout : TensorFlow Placeholder
+        The placeholder for the dropout
 
     bias_strategy : str, optional (default='zeros')
         The strategy for initializing the bias vector. Default is 'zeros' and will
@@ -370,7 +368,7 @@ class GaussianDenseLayer(_BaseDenseLayer):
     ----------
     [1] Based on code at https://github.com/fastforwardlabs/vae-tf
     """
-    def __init__(self, fan_in, fan_out, activation, dropout=1., bias_strategy='zeros', seed=42):
+    def __init__(self, fan_in, fan_out, activation, dropout, bias_strategy='zeros', seed=42):
         super(GaussianDenseLayer, self).__init__(fan_in=fan_in, fan_out=fan_out, activation=activation,
                                                  dropout=dropout, bias_strategy=bias_strategy, seed=seed)
 
@@ -404,10 +402,8 @@ class XavierDenseLayer(_BaseDenseLayer):
         The type of layer, i.e., 'xavier'. This is the type of layer that
         will be generated. One of {'xavier', 'gaussian'}
 
-    dropout : float, optional (default=1.0)
-        Dropout is a mechanism to prevent over-fitting a network. Dropout functions
-        by randomly dropping hidden units (and their connections) during training.
-        This prevents units from co-adapting too much.
+    dropout : TensorFlow Placeholder
+        The placeholder for the dropout
 
     bias_strategy : str, optional (default='zeros')
         The strategy for initializing the bias vector. Default is 'zeros' and will
@@ -422,7 +418,7 @@ class XavierDenseLayer(_BaseDenseLayer):
     ----------
     [1] Based on code at https://github.com/fastforwardlabs/vae-tf
     """
-    def __init__(self, fan_in, fan_out, activation, dropout=1., l2_penalty=0.0001, bias_strategy='zeros', seed=42):
+    def __init__(self, fan_in, fan_out, activation, dropout, l2_penalty=0.0001, bias_strategy='zeros', seed=42):
         super(XavierDenseLayer, self).__init__(fan_in=fan_in, fan_out=fan_out, activation=activation,
                                                dropout=dropout, seed=seed, bias_strategy=bias_strategy)
 

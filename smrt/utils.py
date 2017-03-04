@@ -42,11 +42,11 @@ def next_seed(random_state):
     return random_state.randint(0, 1000)
 
 
-def validate_float(ratio, name, upper_bound=1., gtet=True):
-    res = 0. < ratio < upper_bound if not gtet else 0. < ratio <= upper_bound
+def validate_float(ratio, name, upper_bound=1., ltet=True):
+    res = 0. < ratio < upper_bound if not ltet else 0. < ratio <= upper_bound
     if not res:
         raise ValueError('Expected 0 < %s %s %r, but got %r'
-                         % (name, ratio, '<=' if gtet else '<', upper_bound))
+                         % (name, ratio, '<=' if ltet else '<', upper_bound))
 
 
 def overrides(interface_class):

@@ -10,7 +10,7 @@ from sklearn.externals import six
 import numpy as np
 import tensorflow as tf
 from abc import ABCMeta, abstractmethod
-from ..utils import validate_float, get_random_state
+from ..utils import validate_float
 
 __all__ = [
     'BaseAutoEncoder',
@@ -33,10 +33,10 @@ def _validate_positive_integer(instance, name):
     return res
 
 
-def _validate_float(instance, name, upper_bound=1.):
+def _validate_float(instance, name, upper_bound=1., ltet=False):
     try:
         res = float(getattr(instance, name))
-        validate_float(res, name, upper_bound, gtet=False)
+        validate_float(res, name, upper_bound, ltet=ltet)
     except:
         raise
     return res
@@ -65,7 +65,7 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         self.learning_function = learning_function
         self.early_stopping = early_stopping
         self.bias_strategy = bias_strategy
-        self.random_state = get_random_state(random_state)
+        self.random_state = random_state
         self.layer_type = layer_type
         self.dropout = dropout
         self.l2_penalty = l2_penalty
@@ -81,6 +81,7 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         self.verbose = _validate_positive_integer(self, 'verbose')
         self.display_step = _validate_positive_integer(self, 'display_step')
         self.n_epochs = _validate_positive_integer(self, 'n_epochs')
+        self.dropout = _validate_float(self, 'dropout', ltet=True)
 
         # l2 is allowed to be None
         if self.l2_penalty is not None:
