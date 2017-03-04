@@ -13,7 +13,7 @@ from sklearn.utils import gen_batches, check_array
 from sklearn.utils.validation import check_is_fitted
 from abc import ABCMeta, abstractmethod
 
-from .layer import SymmetricalAutoEncoderTopography, SymmetricalVAETopography
+from .layer import SymmetricalAutoEncoderTopography, SymmetricalVAETopography, _BaseDenseLayer
 from .base import BaseAutoEncoder, ReconstructiveMixin, GenerativeMixin, _validate_float, DTYPE
 from ..utils import overrides, get_random_state, next_seed
 from ._ae_utils import cross_entropy, kullback_leibler
@@ -23,11 +23,15 @@ __all__ = [
     'VariationalAutoEncoder'
 ]
 
+
+DEFAULT_L2 = 0.0001
+
 # this dict maps all the supported activation functions to the tensorflow
 # equivalent functions for the session model training. It also maps all the
 # supported activation functions to the local variants for offline scoring operations.
 PERMITTED_ACTIVATIONS = {
     'elu': tf.nn.elu,
+    'identity': tf.identity,
     'relu': tf.nn.relu,
     'sigmoid': tf.nn.sigmoid,
     'tanh': tf.nn.tanh
@@ -74,7 +78,7 @@ class _SymmetricAutoEncoder(BaseAutoEncoder):
     """
     def __init__(self, n_hidden, activation_function, learning_rate, n_epochs, batch_size, min_change, verbose,
                  display_step, learning_function, early_stopping, bias_strategy, random_state, layer_type,
-                 dropout, scope):
+                 dropout, l2_penalty):
 
         super(_SymmetricAutoEncoder, self).__init__(activation_function=activation_function,
                                                     learning_rate=learning_rate, n_epochs=n_epochs,
@@ -86,11 +90,26 @@ class _SymmetricAutoEncoder(BaseAutoEncoder):
                                                     bias_strategy=bias_strategy,
                                                     random_state=random_state,
                                                     layer_type=layer_type, dropout=dropout,
-                                                    scope=scope)
+                                                    l2_penalty=l2_penalty)
 
     @abstractmethod
     def _initialize_graph(self, X, y):
         """Should be called in the ``fit`` method. This initializes the placeholder variables"""
+
+    def _add_regularization(self, cost_function):
+        """Add L2 regularization"""
+        w_name = _BaseDenseLayer._WEIGHTS_NAME
+        if self.l2_penalty is not None:
+            penalties = [
+                tf.nn.l2_loss(v)
+                for v in self.sess.graph.get_collection("trainable_variables")
+                if w_name in v.name
+            ]
+
+            l2_reg = self.l2_penalty * tf.add_n(penalties)
+            cost_function += l2_reg
+
+        return cost_function
 
     def fit(self, X, y=None, **kwargs):
         X, cost_function, optimizer = self._initialize_graph(X, y)
@@ -108,6 +127,9 @@ class _SymmetricAutoEncoder(BaseAutoEncoder):
         sess.run(init)
         epoch_times = []
         last_cost = None
+
+        # add regularization to cost_function
+        cost_function = self._add_regularization(cost_function)
 
         # generate the batches in a generator from sklearn, but store
         # in a list so we don't have to re-gen (since the generator will be
@@ -182,7 +204,8 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
         are constructed, with as many neurons as correspond to each index, respectively.
 
     activation_function : str, optional (default='sigmoid')
-        The activation function. Should be one of PERMITTED_ACTIVATIONS: ('elu', 'relu', 'sigmoid', 'tanh')
+        The activation function. Should be one of PERMITTED_ACTIVATIONS:
+        ('elu', 'identity', 'relu', 'sigmoid', 'tanh')
 
     learning_rate : float, optional (default=0.05)
         The algorithm learning rate.
@@ -236,8 +259,8 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
         by randomly dropping hidden units (and their connections) during training.
         This prevents units from co-adapting too much.
 
-    scope : str, optional (default='dense_layer')
-        The scope used for TensorFlow variable sharing.
+    l2_penalty : float or None, optional (default=0.0001)
+        The L2 penalty (regularization term) parameter.
 
 
     Notes
@@ -269,7 +292,7 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
     def __init__(self, n_hidden, activation_function='sigmoid', learning_rate=0.05, n_epochs=20,
                  batch_size=128, min_change=1e-6, verbose=0, display_step=5, learning_function='rms_prop',
                  early_stopping=False, bias_strategy='zeros', random_state=None, layer_type='xavier',
-                 dropout=1., scope='dense_layer'):
+                 dropout=1., l2_penalty=DEFAULT_L2):
 
         super(AutoEncoder, self).__init__(activation_function=activation_function,
                                           learning_rate=learning_rate, n_epochs=n_epochs,
@@ -281,7 +304,7 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
                                           bias_strategy=bias_strategy,
                                           random_state=random_state,
                                           layer_type=layer_type, dropout=dropout,
-                                          scope=scope)
+                                          l2_penalty=l2_penalty)
 
     @overrides(_SymmetricAutoEncoder)
     def _initialize_graph(self, X, y):
@@ -306,7 +329,6 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
                                                             activation=activation,
                                                             layer_type=self.layer_type,
                                                             dropout=self.dropout,
-                                                            scope=self.scope,
                                                             bias_strategy=self.bias_strategy,
                                                             random_state=self.random_state)
 
@@ -356,7 +378,8 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
         The size of the latent factor layer learned by the ``VariationalAutoEncoder``
 
     activation_function : str, optional (default='sigmoid')
-        The activation function. Should be one of PERMITTED_ACTIVATIONS: ('elu', 'relu', 'sigmoid', 'tanh')
+        The activation function. Should be one of PERMITTED_ACTIVATIONS:
+        ('elu', 'identity', 'relu', 'sigmoid', 'tanh')
 
     learning_rate : float, optional (default=0.05)
         The algorithm learning rate.
@@ -410,8 +433,8 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
         by randomly dropping hidden units (and their connections) during training.
         This prevents units from co-adapting too much.
 
-    scope : str, optional (default='dense_layer')
-        The scope used for TensorFlow variable sharing.
+    l2_penalty : float or None, optional (default=0.0001)
+        The L2 penalty (regularization term) parameter.
 
     eps : float, optional (default=1e-10)
         A small amount of noise to add to the loss to avoid a potential computation of
@@ -448,7 +471,7 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
     def __init__(self, n_hidden, n_latent_factors, activation_function='sigmoid', learning_rate=0.05,
                  n_epochs=20, batch_size=128, min_change=1e-6, verbose=0, display_step=5, learning_function='rms_prop',
                  early_stopping=False, bias_strategy='zeros', random_state=None, layer_type='xavier', dropout=1.,
-                 scope='dense_layer', eps=1e-10):
+                 l2_penalty=DEFAULT_L2, eps=1e-10):
 
         super(VariationalAutoEncoder, self).__init__(activation_function=activation_function,
                                                      learning_rate=learning_rate, n_epochs=n_epochs,
@@ -460,7 +483,7 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
                                                      bias_strategy=bias_strategy,
                                                      random_state=random_state,
                                                      layer_type=layer_type, dropout=dropout,
-                                                     scope=scope)
+                                                     l2_penalty=l2_penalty)
 
         # the only VAE-specific params
         self.n_latent_factors = n_latent_factors
@@ -491,7 +514,6 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
                                                     n_latent_factors=self.n_latent_factors,
                                                     layer_type=self.layer_type,
                                                     dropout=self.dropout,
-                                                    scope=self.scope,
                                                     bias_strategy=self.bias_strategy,
                                                     random_state=self.random_state)
 

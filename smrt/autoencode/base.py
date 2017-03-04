@@ -52,7 +52,7 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
 
     def __init__(self, activation_function, learning_rate, n_epochs, batch_size, n_hidden, min_change,
                  verbose, display_step, learning_function, early_stopping, bias_strategy, random_state,
-                 layer_type, dropout, scope):
+                 layer_type, dropout, l2_penalty):
 
         self.activation_function = activation_function
         self.learning_rate = learning_rate
@@ -68,7 +68,7 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         self.random_state = get_random_state(random_state)
         self.layer_type = layer_type
         self.dropout = dropout
-        self.scope = scope
+        self.l2_penalty = l2_penalty
 
         # at exit, make sure we close the session
         import atexit
@@ -81,6 +81,10 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         self.verbose = _validate_positive_integer(self, 'verbose')
         self.display_step = _validate_positive_integer(self, 'display_step')
         self.n_epochs = _validate_positive_integer(self, 'n_epochs')
+
+        # l2 is allowed to be None
+        if self.l2_penalty is not None:
+            self.l2_penalty = _validate_float(self, 'l2_penalty')
 
     @abstractmethod
     def transform(self, X):

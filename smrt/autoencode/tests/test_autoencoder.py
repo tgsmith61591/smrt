@@ -28,7 +28,7 @@ def test_autoencoder():
     ae.fit(X_train)
 
     # train error
-    assert_almost_equal(ae.train_cost_, 0.00380031)
+    assert_almost_equal(ae.train_cost_, 0.79045808)
 
     # ensure transform runs... todo assert vals
     ae.transform(X_train)
