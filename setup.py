@@ -6,7 +6,8 @@
 
 from __future__ import print_function, absolute_import, division
 from distutils.command.clean import clean
-from setuptools import setup
+# from setuptools import setup  # DO NOT use setuptools!!!!!!
+import shutil
 import os
 import sys
 
@@ -22,7 +23,7 @@ builtins.__SMRT_SETUP__ = True
 
 # metadata
 DISTNAME = 'smrt'
-DESCRIPTION = 'Handle class imbalance intelligently by using autoencoders ' \
+DESCRIPTION = 'Handle class imbalance intelligently by using Variational Autoencoders ' \
               'to generate synthetic observations of your minority class.'
 
 MAINTAINER = 'Taylor G. Smith'
@@ -76,34 +77,72 @@ class CleanCommand(clean):
 
 cmdclass = {'clean': CleanCommand}
 
-# setup the config
-configuration = dict(name=DISTNAME,
-                     maintainer=MAINTAINER,
-                     maintainer_email=MAINTAINER_EMAIL,
-                     description=DESCRIPTION,
-                     license=LICENSE,
-                     version=VERSION,
-                     classifiers=['Intended Audience :: Science/Research',
-                                  'Intended Audience :: Developers',
-                                  'Intended Audience :: Scikit-learn users',
-                                  'Programming Language :: Python',
-                                  'Topic :: Machine Learning',
-                                  'Topic :: Software Development',
-                                  'Topic :: Scientific/Engineering',
-                                  'Operating System :: Microsoft :: Windows',
-                                  'Operating System :: POSIX',
-                                  'Operating System :: Unix',
-                                  'Operating System :: MacOS',
-                                  'Programming Language :: Python :: 2.7'
-                                 ],
-                     keywords='sklearn scikit-learn tensorflow scikit-neuralnetwork auto-encoders class-imbalance',
-                     packages=[DISTNAME],
-                     install_requires=REQUIREMENTS,
-                     cmdclass=cmdclass)
+
+def configuration(parent_package='', top_path=None):
+    # we know numpy is a valid import now
+    from numpy.distutils.misc_util import Configuration
+    config = Configuration(None, parent_package, top_path)
+
+    # Avoid non-useful msg
+    # "Ignoring attempt to set 'name' (from ... "
+    config.set_options(ignore_setup_xxx_py=True,
+                       assume_default_configuration=True,
+                       delegate_options_to_subpackages=True,
+                       quiet=True)
+
+    config.add_subpackage(DISTNAME)
+    return config
 
 
 def do_setup():
-    return setup(**configuration)
+    # setup the config
+    metadata = dict(name=DISTNAME,
+                    maintainer=MAINTAINER,
+                    maintainer_email=MAINTAINER_EMAIL,
+                    description=DESCRIPTION,
+                    license=LICENSE,
+                    version=VERSION,
+                    classifiers=['Intended Audience :: Science/Research',
+                                 'Intended Audience :: Developers',
+                                 'Intended Audience :: Scikit-learn users',
+                                 'Programming Language :: Python',
+                                 'Topic :: Machine Learning',
+                                 'Topic :: Software Development',
+                                 'Topic :: Scientific/Engineering',
+                                 'Operating System :: Microsoft :: Windows',
+                                 'Operating System :: POSIX',
+                                 'Operating System :: Unix',
+                                 'Operating System :: MacOS',
+                                 'Programming Language :: Python :: 2.7'
+                                 ],
+                    keywords='sklearn scikit-learn tensorflow auto-encoders neural-networks class-imbalance',
+                    # packages=[DISTNAME],
+                    # install_requires=REQUIREMENTS,
+                    cmdclass=cmdclass)
+
+    if len(sys.argv) == 1 or (
+            len(sys.argv) >= 2 and ('--help' in sys.argv[1:] or
+                                    sys.argv[1] in ('--help-commands',
+                                                    'egg-info',
+                                                    '--version',
+                                                    'clean'))):
+        # For these actions, NumPy is not required
+        try:
+            from setuptools import setup
+        except ImportError:
+            from distutils.core import setup
+
+    else:  # we DO need numpy
+        try:
+            from numpy.distutils.core import setup
+        except ImportError:
+            raise RuntimeError('Need numpy to build %s' % DISTNAME)
+
+        # add the config to the metadata
+        metadata['configuration'] = configuration
+
+    # call setup on the dict
+    setup(**metadata)
 
 
 if __name__ == '__main__':

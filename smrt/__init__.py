@@ -4,10 +4,7 @@
 #
 # The SMRT module
 
-import sys
-import os
-
-__version__ = '0.2'
+__version__ = '0.3'
 
 try:
     # this var is injected in the setup build to enable
@@ -18,13 +15,24 @@ except NameError:
     __SMRT_SETUP__ = False
 
 if __SMRT_SETUP__:
+    import sys
+    import os
     sys.stderr.write('Partial import of SMRT during the build process.' + os.linesep)
 else:
     __all__ = [
         'autoencode',
-        'balance'
+        'balance',
+        'testing'
     ]
 
-    # top-level imports
-    from .balance import smrt_balance, smote_balance
-    from .autoencode import AutoEncoder
+    # top-level imports - if any
+    # todo
+
+
+def setup_module(module):
+    import numpy as np
+    import random
+
+    _random_seed = int(np.random.uniform() * (2 ** 31 - 1))
+    np.random.seed(_random_seed)
+    random.seed(_random_seed)
