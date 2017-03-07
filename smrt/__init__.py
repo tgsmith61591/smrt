@@ -4,7 +4,7 @@
 #
 # The SMRT module
 
-__version__ = '0.3-dev'
+__version__ = '0.3'
 
 try:
     # this var is injected in the setup build to enable
