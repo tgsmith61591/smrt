@@ -26,7 +26,7 @@ def test_autoencoder():
     # define
     ae = AutoEncoder(n_hidden=400, n_epochs=10, learning_rate=0.01, batch_size=256,
                      display_step=5, activation_function='sigmoid', verbose=2,
-                     random_state=seed, layer_type='gaussian')
+                     random_state=seed, layer_type='gaussian', early_stopping=True)
 
     # fit
     ae.fit(X_train)

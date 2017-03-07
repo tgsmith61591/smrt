@@ -43,8 +43,6 @@ STRATEGIES = {
 
 def _nearest_neighbors_for_class(X, label, label_encoder, y_transform, majority_label, target_count, random_state,
                                  strategy, n_neighbors, algorithm, leaf_size, p, metric, metric_params, n_jobs):
-    if strategy not in STRATEGIES:
-        raise ValueError('strategy must be one of %r' % STRATEGIES)
     func = STRATEGIES[strategy]
 
     # start the iteration...
@@ -72,7 +70,12 @@ def _nearest_neighbors_for_class(X, label, label_encoder, y_transform, majority_
     # be the index of the observation itself (i.e., obs 0 is its own
     # nearest neighbor).
     model.fit(X_sub)
-    nearest = model.kneighbors(X_sub, n_neighbors=n_neighbors + 1, return_distance=False)
+
+    # draw the nearest neighbors ONCE. There is an interesting corner case here...
+    # sklearn's nearest neighbors will draw the actual observation as its own nearest neighbor
+    # so we need to query for k + 1, and remove the first index (handled in the while loop)
+    k_neighbors = min(X_sub.shape[0], n_neighbors + 1)
+    nearest = model.kneighbors(X_sub, n_neighbors=k_neighbors, return_distance=False)
     indices = np.arange(count)
 
     # append the labels to y_transform - do this once to avoid the overhead of repeated concatenations
@@ -220,9 +223,11 @@ def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='pe
     X, y, n_classes, present_classes, \
         counts, majority_label, target_count = _validate_X_y_ratio_classes(X, y, balance_ratio)
 
-    # if n_neighbors < 2, it will only draw itself
-    if n_neighbors < 2:
-        raise ValueError('n_neighbors must be 2 at minimum')
+    # validate n_neighbors is at least one
+    if n_neighbors < 1:
+        raise ValueError('n_neighbors must be at least 1')
+    if strategy not in STRATEGIES:
+        raise ValueError('strategy must be one of %r' % STRATEGIES)
 
     # make sure it's not just an int
     random_state = get_random_state(random_state)
