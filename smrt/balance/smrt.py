@@ -164,12 +164,10 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
     # start the iteration...
     encoders = dict()  # map the label to the fit encoder
     for i, label in enumerate(present_classes):
-        if label == majority_label:
-            continue
-
         # if the count >= the ratio, skip this label
+        # also skip if it's the majority class (which would be covered in first condition, I guess...)
         count = counts[i]
-        if count >= target_count:
+        if label == majority_label or count >= target_count:
             encoders[label] = None
             continue
 
@@ -196,8 +194,7 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
 
         # append
         X_copy = np.vstack([X_copy, synthetic])
-        y_transform = np.concatenate([y_transform,
-                                      np.ones(obs_req, dtype=np.int16) * transformed_label])
+        y_transform = np.concatenate([y_transform, np.ones(obs_req, dtype=np.int16) * transformed_label])
 
     # now that X, y_transform have been assembled, inverse_transform the y_t back to its original state:
     y = le.inverse_transform(y_transform)

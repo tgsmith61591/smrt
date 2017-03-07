@@ -41,13 +41,9 @@ STRATEGIES = {
 }
 
 
-def _nearest_neighbors_for_class(X, label, label_encoder, y_transform, majority_label, target_count, random_state,
-                                 strategy, n_neighbors, algorithm, leaf_size, p, metric, metric_params, n_jobs):
+def _nearest_neighbors_for_class(X, label, label_encoder, y_transform, target_count, random_state, strategy,
+                                 n_neighbors, algorithm, leaf_size, p, metric, metric_params, n_jobs):
     func = STRATEGIES[strategy]
-
-    # start the iteration...
-    if label == majority_label:
-        return X, y_transform, None
 
     # transform the label, get the subset
     transformed_label = label_encoder.transform([label])[0]
@@ -240,10 +236,15 @@ def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='pe
     # get the nearest neighbor models
     models = dict()
     for label in present_classes:
+
+        # skip the pass to the method and continue if label is majority
+        if label == majority_label:
+            models[label] = None
+            continue
+
         # X and y_transform will progressively be updated throughout the runs
         X, y_transform, models[label] = _nearest_neighbors_for_class(X=X, label=label, label_encoder=le,
                                                                      y_transform=y_transform,
-                                                                     majority_label=majority_label,
                                                                      target_count=target_count,
                                                                      random_state=random_state,
                                                                      strategy=strategy, n_neighbors=n_neighbors,
