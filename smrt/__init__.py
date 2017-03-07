@@ -7,7 +7,7 @@
 import sys
 import os
 
-__version__ = '0.1'
+__version__ = '0.2'
 
 try:
     # this var is injected in the setup build to enable
