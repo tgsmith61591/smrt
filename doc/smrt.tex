@@ -54,11 +54,15 @@ Class imbalance is a frequent challenge in many applied machine learning domains
 
 \section{Previous Work}
 
+Over-sampling minority samples with replacement has been shown not to significantly improve classifier performance (Japkowicz, 2000).  Chawla, Bowyer and Hall (2002) interpretted this phenomenon as being due to the lack of decision region generalization. They hypothesized over-sampling actually minimized the decision space as minority samples were replicated. Furthermore, they showed with SMOTE that synthetically-generated minority class observations effectively aided in generalizing the decision region for the minority class(es).
+
 \section{Generative Models}
+
+TODO: lots of equations will go in here...
 
 \section{SMRT}
 
-We present a generative over-sampling approach similar to SMOTE, by which the observations in each minority class are used to fit a variational auto-encoder, and synthetic examples are generated until the class is represented at the user-specified ratio. TODO: \\
+We present a generative over-sampling approach similar to SMOTE, by which the observations in each minority class are used to fit a variational auto-encoder, and synthetic examples are generated until the class is represented at the user-specified ratio. \\
 
 \makeatletter
 \def\BState{\State\hskip-\ALG@thistlm}
