@@ -9,7 +9,9 @@
 % is archived at http://www.jmlr.org/format/natbib.pdf
 
 \usepackage{jmlr2e}
-\usepackage[]{algorithm2e}
+\usepackage{amsmath}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
 
 % Definitions of handy macros can go here
 
@@ -58,21 +60,35 @@ Class imbalance is a frequent challenge in many applied machine learning domains
 
 We present a generative over-sampling approach similar to SMOTE, by which the observations in each minority class are used to fit a variational auto-encoder, and synthetic examples are generated until the class is represented at the user-specified ratio. TODO: \\
 
-\begin{algorithm}[H]
- \KwData{this text}
- \KwResult{how to write algorithm with \LaTeX2e }
- initialization\;
- \While{not at end of this document}{
-  read current\;
-  \eIf{understand}{
-   go to next section\;
-   current section becomes this one\;
-   }{
-   go back to the beginning of current section\;
-  }
- }
- \caption{SMRT}
+\makeatletter
+\def\BState{\State\hskip-\ALG@thistlm}
+\makeatother
+
+\begin{algorithm}
+\caption{SMRT}\label{smrt}
+  \begin{algorithmic}[1]
+    \Procedure{Balance}{$X, y, n$}\Comment{Balance $X, y$}
+      \State $labels \gets \text{distinct } \textit{y}$
+      \State $majority \gets argmax(labels)$
+      \State $nlabels \gets \text{length of } labels$
+      \State $nreq \gets int(n \times \text{number of majority samples in } \textit{y})$
+      \BState \emph{loop}:
+      \For{i := 1 to \textit{nlabels}}
+        \State $label \gets labels[i]$
+        \If {$label \neq majority$}\Comment{Skip the majority class}
+          \State $Xsub \gets X \text{where } y = label$
+          \State $p \gets nreq - \text{length of } Xsub$
+          \State \text{Fit a Variational Autoencoder with $Xsub$, call it $vae$}
+          \State \text{Generate $p$ synthetic examples from $vae$, update $X, y$}
+        \EndIf
+      \EndFor
+      \Return{$X, y$}\Comment{Optionally shuffle}
+    \EndProcedure
+  \end{algorithmic}
 \end{algorithm}
+
+\section{Computation}
+
 
 % Manual newpage inserted to improve layout of sample file - not
 % needed in general before appendices/bibliography.
