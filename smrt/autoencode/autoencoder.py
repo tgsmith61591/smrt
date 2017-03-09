@@ -463,6 +463,8 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
     [2] http://jmetzen.github.io/2015-11-27/vae.html
 
     [3] http://blog.fastforwardlabs.com/2016/08/12/introducing-variational-autoencoders-in-prose-and.html
+
+    [4] https://arxiv.org/pdf/1606.05908.pdf
     """
     def __init__(self, n_hidden, n_latent_factors, activation_function='sigmoid', learning_rate=0.05,
                  n_epochs=20, batch_size=128, min_change=1e-6, verbose=0, display_step=5, learning_function='rms_prop',

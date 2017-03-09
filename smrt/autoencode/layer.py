@@ -262,7 +262,7 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
             for fan_in, fan_out in encode_dimensions
         ]
 
-        # chain in reverse:
+        # chain:
         encode = _chain_layers(encoding_layers, X_placeholder)
 
         # add the latent distribution ("hidden code")
