@@ -8,7 +8,6 @@
 % natbib citation styles, see the natbib documentation, a copy of which
 % is archived at http://www.jmlr.org/format/natbib.pdf
 
-\usepackage{natbib}
 \usepackage{jmlr2e}
 \usepackage{amsmath}
 \usepackage{algorithm}
@@ -54,13 +53,17 @@ A dataset may be considered to suffer from class imbalance if its class labels a
 
 While class imbalance is a frequent challenge in many applied machine learning domains, what makes it especially perilous is the frequent tangible cost with which misclassification of rare events is typically associated. Especially susceptible to imbalanced datasets are diagnostic classification tasks in medical datasets, where high risk examples tend to constitute the minority class \citep{rahman2013addressing}.
 
-The machine learning community has attempted to address the problem of class imbalance in several ways: the development of cost-sensitive classification metrics, such as AUC (CITATION NEEDED) and the ROC convex hull \citep{provost2001robust}; and data preparation tasks that either re-sample or manipulate the input data before building a model. While significant research exists to propose that simply over-sampling or under-sampling the minority class samples is not sufficient (Japkowicz, 2000), our technique can be considered a distinct form of combining the over-sampling approach with a set of generative models, and can be most closely compared to SMOTE \citep{chawla2002smote}.
+The machine learning community has attempted to address the problem of class imbalance in several ways: weighting, such as the development of cost-sensitive classification metrics like AUC (CITATION NEEDED) and the ROC convex hull \citep{provost2001robust}; and data preparation tasks that either re-sample or manipulate the input data before building a model. While significant research exists to propose that simply over-sampling or under-sampling the minority class samples is not sufficient (Japkowicz, 2000), our technique can be considered a distinct form of combining the over-sampling approach with a set of generative models, and can be most closely compared to SMOTE \citep{chawla2002smote}.
 
-Section 2 presents previous work to which our approach may be compared. Section 3 introduces generative models, and more specifically, variational autoencoders. Section 4 outlines the details of our technique. Section 5 details the performance of our technique compared with other commonly class imbalance solutions. \\
+Section 2 presents previous work to which our approach may be compared. Section 3 introduces generative models, and more specifically, variational auto-encoders. Section 4 outlines the details of our technique. Section 5 details the performance of our technique compared with other common class imbalance solutions. \\
 
 \section{Previous Work}
 
-Over-sampling minority samples with replacement has been shown not to significantly improve classifier performance \citep{japkowicz2000learning}.  Chawla, Bowyer and Hall (2002) interpretted this phenomenon as being due to the lack of decision region generalization. They hypothesized over-sampling actually minimized the decision space as minority samples were replicated. Furthermore, they showed with SMOTE that synthetically-generated minority class observations effectively aided in generalizing the decision region for the minority class(es).
+Over-sampling minority samples with replacement has been shown to not significantly improve classifier performance \citep{japkowicz2000learning}.  Chawla, Bowyer and Hall (2002) interpreted this phenomenon as being due to the lack of decision region generalization. Exposing the classifier to the same observation set multiple times allows it to learn those observations more effectively, but has the consequence of potentially overfitting those examples and therefore narrowing the decision boundry. Similarly, the work of Japkowicz showed that over-sampling minority observations that lie close to decision boundry displayed performance similar to naive over-sampling.
+
+Due to this limitation, Chawla, Bowyer and Hall proposed adding synthetic minority class observations to imbalanced datasets instead of sampling the minority class with replacement.  They implemented this approach in the SMOTE algorithm. SMOTE uses k-nearest neighbors to find minority class observations most similar to each minority class observation, then generates a new observation by taking the difference between the original observation and the neighbor, multipying the difference with a random number between 0 to 1, and adding the number to the original observation. The application of SMOTE has been shown to effectively aid in generalizing the decision region for the minority class(es) by synthetically-generating minority class observations.  
+
+--SMRT can be considered a distinct form of over-sampling the minority class, as it builds on the SMOTE paradigm by using variational autoencoders in place of k nearest neighbors to generate synthetic data. 
 
 \section{Variational Auto-Encoders}
 
@@ -84,6 +87,7 @@ Finally, synthetic examples are generated by sampling the posterior:
     \mathbf{z}^{(i,l)} \sim q_{\phi}(\mathbf{z}|\mathbf{x}^{(i)})
 \end{equation}
 and finally decoding $\mathbf{z}^{(i,l)}$ with either a Bernoulli or Gaussian multilayer perceptron \citep{kingma2013auto}.
+
 
 \section{SMRT}
 
