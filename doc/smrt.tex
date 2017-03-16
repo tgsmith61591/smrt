@@ -8,8 +8,12 @@
 % natbib citation styles, see the natbib documentation, a copy of which
 % is archived at http://www.jmlr.org/format/natbib.pdf
 
+\usepackage{natbib}
 \usepackage{jmlr2e}
-\usepackage[]{algorithm2e}
+\usepackage{amsmath}
+\usepackage{algorithm}
+\usepackage{bm}
+\usepackage[noend]{algpseudocode}
 
 % Definitions of handy macros can go here
 
@@ -27,52 +31,93 @@
 
 \begin{document}
 
-\title{On the Synthetic Augmentation of Minority Class Observations Using Variational Autoencoders}
+\title{On the Synthetic Augmentation of Minority Class Observations Using Variational Auto-Encoders}
 
-\author{\name Taylor G.\ Smith \email taylor.smith@alkaline-ml.com \\
+\author{\name Taylor G.\ Smith \email taylor.smith@alkaline-ml.com
        \AND
        \name Jason M.\ White \email jason.m.white5@gmail.com}
 
-\editor{TODO}
-
+\editor{Michael Bernico}
 \maketitle
 
 \begin{abstract}%   <- trailing '%' for backward compatibility of .sty file
-This document describes a methodology by which to remedy imbalanced datasets for the purpose of classification. A dataset may be considered imbalanced if its classification labels are disproportionately represented across classes. In many real-world domains, class imbalance---or the presence of extremely rare events which may be costly-to-misclassify---is quite prevalent. Such commonly cited domains include fraud detection, medical imaging, anomaly detection and countless more.  Our procedure furthers the Synthetic Minority Over-samping Technique (Chawla, Bowyer, Hall \& Kegelmeyer, 2002) by leveraging generative variational autoencoders.
+This document describes a methodology by which to remedy imbalanced datasets for the purpose of classification. A dataset may be considered imbalanced if its classification labels are exceedingly disproportionately represented across classes. In many real-world domains, class imbalance---or the presence of extremely rare events which may be costly-to-misclassify---is quite prevalent. Commonly cited problem domains include fraud detection, medical imaging, anomaly detection and countless more.  Our procedure furthers the Synthetic Minority Over-samping Technique \citep{chawla2002smote} by leveraging generative variational auto-encoders.
 \end{abstract}
 
 \begin{keywords}
-  classification, class-imbalance, cost-sensitive learning, SMOTE, variational autoencoders, skewed distributions
+  classification, class-imbalance, cost-sensitive learning, SMOTE, variational auto-encoders, skewed distributions
 \end{keywords}
 
 \section{Introduction}
 
-Class imbalance is a frequent challenge in many applied machine learning domains. In extreme cases of disproportionately-represented classes, cost-insensitive evaluation metrics are inappropriate (CITATION NEEDED). The machine learning community has attempted to address the problem of class imbalance in two separate ways (Chawla, Bowyer, Hall \& Kegelmeyer, 2002): the development of cost-sensitive classification metrics, such as AUC (CITATION NEEDED) and the ROC convex hull (Provost \& Fawcett, 2001); and data preparation tasks that re-sample the input data before building a model. Our technique can be considered a distinct form of over-sampling the minority class, and can be most closely compared to SMOTE (Chawla, Bowyer, Hall \& Kegelmeyer, 2002).\\
-        Section 2 presents previous work to which our approach may be compared. Section 3 introduces generative models, and more specifically, variational auto-encoders. Section 4 outlines the details of our technique. Section 5 details the performance of our technique compared with other commonly class imbalance solutions. \\
+A dataset may be considered to suffer from class imbalance if its class labels are represented at significantly disproportionate levels. Often times one class---the majority class---is highly represented, while one or more minority classes are present at a much smaller ratio. This greatly complicates the classification task, as conventional, cost-insensitive evaluation metrics (such as accuracy) will offer misleadingly optimistic scores on an otherwise poor classifier. 
+
+While class imbalance is a frequent challenge in many applied machine learning domains, what makes it especially perilous is the frequent tangible cost with which misclassification of rare events is typically associated. Especially susceptible to imbalanced datasets are diagnostic classification tasks in medical datasets, where high risk examples tend to constitute the minority class \citep{rahman2013addressing}.
+
+The machine learning community has attempted to address the problem of class imbalance in several ways: the development of cost-sensitive classification metrics, such as AUC (CITATION NEEDED) and the ROC convex hull \citep{provost2001robust}; and data preparation tasks that either re-sample or manipulate the input data before building a model. While significant research exists to propose that simply over-sampling or under-sampling the minority class samples is not sufficient (Japkowicz, 2000), our technique can be considered a distinct form of combining the over-sampling approach with a set of generative models, and can be most closely compared to SMOTE \citep{chawla2002smote}.
+
+Section 2 presents previous work to which our approach may be compared. Section 3 introduces generative models, and more specifically, variational autoencoders. Section 4 outlines the details of our technique. Section 5 details the performance of our technique compared with other commonly class imbalance solutions. \\
 
 \section{Previous Work}
 
-\section{Generative Models}
+Over-sampling minority samples with replacement has been shown not to significantly improve classifier performance \citep{japkowicz2000learning}.  Chawla, Bowyer and Hall (2002) interpretted this phenomenon as being due to the lack of decision region generalization. They hypothesized over-sampling actually minimized the decision space as minority samples were replicated. Furthermore, they showed with SMOTE that synthetically-generated minority class observations effectively aided in generalizing the decision region for the minority class(es).
+
+\section{Variational Auto-Encoders}
+
+The advent of generative algorithms is that they do not simply learn the classification boundaries between classes, as do discriminative algorithms, but model the (often intractable) distribution by which the data was generated. As a result, generative models allow us to create new, synthetic examples after learning the underlying distribution. 
+
+An auto-encoder, as originally introduced by Hinton and the PDP group \citep{rumelhart1985learning}, is a special case of a multilayer perceptron (MLP) that estimates its own input vector as its output. The implications of such a model offer the ability to effectively reconstruct inputs with minimal error, while identifying high-reconstruction-error examples as anomalous, or non-conformant to the underlying learned distribution. The general architecture of an auto-encoder is dual: the encoding task either compresses or expands the input signal into the hidden layer space, while the decode task projects the hidden layer-transformed values back to the input space.
+
+
+A variational auto-encoder is a generative auto-encoder; it learns latent vectors, which typically approximate a unit Gaussian posterior, $\mathbf{z}$, with a diagonal covariance structure \citep{kingma2013auto}:
+\begin{equation}
+    \log q_{\phi}(\mathbf{z}|\mathbf{x}^{(i)}) = \log \mathcal{N}(\mathbf{z}; \bm{\mu}^{(i)}, \bm{\sigma}^{2(i)}\mathbf{I})
+\end{equation}
+where the mean and standard deviation of $\mathbf{z}$ (the approximate posterior), $\bm{\mu}^{(i)}$ and $\bm{\sigma}^{(i)}$, are the results of the auto-encoder's encode task \citep{kingma2013auto}.
+
+It achieves this by minimizing a dual loss-function: the combination of the reconstructive loss---the MSE of the input vector and the reconstructed vector---and the latent loss---the Kullback-Leibler (KL) divergence---which measures how well the latent vectors approximate the unit Gaussian:
+\begin{equation}
+    D_{KL}(q_{\phi}(\mathbf{z}|\mathbf{x}^{(i)})\parallel p_{\theta}(\mathbf{z}))
+\end{equation}
+Finally, synthetic examples are generated by sampling the posterior:
+\begin{equation}
+    \mathbf{z}^{(i,l)} \sim q_{\phi}(\mathbf{z}|\mathbf{x}^{(i)})
+\end{equation}
+and finally decoding $\mathbf{z}^{(i,l)}$ with either a Bernoulli or Gaussian multilayer perceptron \citep{kingma2013auto}.
 
 \section{SMRT}
 
-We present a generative over-sampling approach similar to SMOTE, by which the observations in each minority class are used to fit a variational auto-encoder, and synthetic examples are generated until the class is represented at the user-specified ratio. TODO: \\
+We present a generative over-sampling approach similar to SMOTE, by which the observations in each minority class are used to fit a variational auto-encoder, and synthetic examples are generated until the class is represented at the user-specified ratio. \\
 
-\begin{algorithm}[H]
- \KwData{this text}
- \KwResult{how to write algorithm with \LaTeX2e }
- initialization\;
- \While{not at end of this document}{
-  read current\;
-  \eIf{understand}{
-   go to next section\;
-   current section becomes this one\;
-   }{
-   go back to the beginning of current section\;
-  }
- }
- \caption{SMRT}
+\makeatletter
+\def\BState{\State\hskip-\ALG@thistlm}
+\makeatother
+
+\begin{algorithm}
+\caption{SMRT}\label{smrt}
+  \begin{algorithmic}[1]
+    \Procedure{Balance}{$X, y, ratio$}\Comment{Balance $X, y$ subject to $ratio$}
+      \State $labels \gets \text{distinct } \textit{y}$
+      \State $majority \gets argmax(count(y))$
+      \State $nlabels \gets \text{length of } labels$
+      \State $nreq \gets int(ratio \times \text{number of majority samples in } \textit{y})$
+      \BState \emph{loop}:
+      \For{i := 1 to \textit{nlabels}}
+        \State $label \gets labels[i]$
+        \If {$label \neq majority$}\Comment{Skip the majority class}
+          \State $Xsub \gets X \text{where } y = label$
+          \State $p \gets nreq - \text{length of } Xsub$\Comment{\textit{n} needed for this class}
+          \State \text{Fit a variational auto-encoder with $Xsub$, call it $vae$}
+          \State \text{Generate $p$ synthetic examples from $vae$, update $X, y$}
+        \EndIf
+      \EndFor
+      \Return{$X, y$}\Comment{Optionally shuffle}
+    \EndProcedure
+  \end{algorithmic}
 \end{algorithm}
+
+\section{SMRT Performance}
+
 
 % Manual newpage inserted to improve layout of sample file - not
 % needed in general before appendices/bibliography.
@@ -100,7 +145,7 @@ which $v=0, w=0$ respectively, and let $I_{uv},I_{uw}$ be the
 respective empirical mutual information values based on the sample
 $\dataset$. Then
 \[
-	N_{v0} \;>\; N_{w0}\;\;\Rightarrow\;\;I_{uv} \;\leq\;I_{uw}
+  N_{v0} \;>\; N_{w0}\;\;\Rightarrow\;\;I_{uv} \;\leq\;I_{uw}
 \]
 with equality only if $u$ is identically 0.} \hfill\BlackBox
 
@@ -118,6 +163,8 @@ by $H$. We aim to show that $\fracpartial{I_{uv}}{P_{v0}} < 0$....\\
 
 
 \vskip 0.2in
-\bibliography{sample}
+
+\newpage
+\bibliography{references}
 
 \end{document}
