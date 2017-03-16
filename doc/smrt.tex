@@ -31,16 +31,15 @@
 
 \title{On the Synthetic Augmentation of Minority Class Observations Using Variational Autoencoders}
 
-\author{\name Taylor G.\ Smith \email taylor.smith@alkaline-ml.com \\
+\author{\name Taylor G.\ Smith \email taylor.smith@alkaline-ml.com
        \AND
        \name Jason M.\ White \email jason.m.white5@gmail.com}
 
-\editor{TODO}
-
+\editor{Michael Bernico}
 \maketitle
 
 \begin{abstract}%   <- trailing '%' for backward compatibility of .sty file
-This document describes a methodology by which to remedy imbalanced datasets for the purpose of classification. A dataset may be considered imbalanced if its classification labels are disproportionately represented across classes. In many real-world domains, class imbalance---or the presence of extremely rare events which may be costly-to-misclassify---is quite prevalent. Such commonly cited domains include fraud detection, medical imaging, anomaly detection and countless more.  Our procedure furthers the Synthetic Minority Over-samping Technique (Chawla, Bowyer, Hall \& Kegelmeyer, 2002) by leveraging generative variational autoencoders.
+This document describes a methodology by which to remedy imbalanced datasets for the purpose of classification. A dataset may be considered imbalanced if its classification labels are exceedingly disproportionately represented across classes. In many real-world domains, class imbalance---or the presence of extremely rare events which may be costly-to-misclassify---is quite prevalent. Commonly cited problem domains include fraud detection, medical imaging, anomaly detection and countless more.  Our procedure furthers the Synthetic Minority Over-samping Technique (Chawla, Bowyer, Hall \& Kegelmeyer, 2002) by leveraging generative variational autoencoders.
 \end{abstract}
 
 \begin{keywords}
@@ -49,8 +48,13 @@ This document describes a methodology by which to remedy imbalanced datasets for
 
 \section{Introduction}
 
-Class imbalance is a frequent challenge in many applied machine learning domains. In extreme cases of disproportionately-represented classes, cost-insensitive evaluation metrics are inappropriate (CITATION NEEDED). The machine learning community has attempted to address the problem of class imbalance in two separate ways (Chawla, Bowyer, Hall \& Kegelmeyer, 2002): the development of cost-sensitive classification metrics, such as AUC (CITATION NEEDED) and the ROC convex hull (Provost \& Fawcett, 2001); and data preparation tasks that re-sample the input data before building a model. Our technique can be considered a distinct form of over-sampling the minority class, and can be most closely compared to SMOTE (Chawla, Bowyer, Hall \& Kegelmeyer, 2002).\\
-        Section 2 presents previous work to which our approach may be compared. Section 3 introduces generative models, and more specifically, variational auto-encoders. Section 4 outlines the details of our technique. Section 5 details the performance of our technique compared with other commonly class imbalance solutions. \\
+A dataset may be considered to suffer from class imbalance if its class labels are represented at significantly disproportionate levels. Often times one class---the majority class---is highly represented, while one or more minority classes are present at a much smaller ratio. This greatly complicates the classification task, as conventional, cost-insensitive evaluation metrics (such as accuracy) will offer misleadingly optimistic scores on an otherwise poor classifier. 
+
+While class imbalance is a frequent challenge in many applied machine learning domains, what makes it especially perilous is the frequent tangible cost with which misclassification of rare events is typically associated. (TODO: COME UP WITH SOME EXAMPLE ABOUT HOW SOME AUTHOR SOMEWHERE RECORDED A MAJOR IMBALANCE IN CANCEROUS TUMORS OR SOMETHING)
+
+The machine learning community has attempted to address the problem of class imbalance in several ways: the development of cost-sensitive classification metrics, such as AUC (CITATION NEEDED) and the ROC convex hull (Provost \& Fawcett, 2001); and data preparation tasks that either re-sample or manipulate the input data before building a model. While significant research exists to propose that simply over-sampling or under-sampling the minority class samples is not sufficient (Japkowicz, 2000), our technique can be considered a distinct form of combining the over-sampling approach with a set of generative models, and can be most closely compared to SMOTE (Chawla, Bowyer, Hall \& Kegelmeyer, 2002).
+
+Section 2 presents previous work to which our approach may be compared. Section 3 introduces generative models, and more specifically, variational autoencoders. Section 4 outlines the details of our technique. Section 5 details the performance of our technique compared with other commonly class imbalance solutions. \\
 
 \section{Previous Work}
 
@@ -71,17 +75,17 @@ We present a generative over-sampling approach similar to SMOTE, by which the ob
 \begin{algorithm}
 \caption{SMRT}\label{smrt}
   \begin{algorithmic}[1]
-    \Procedure{Balance}{$X, y, n$}\Comment{Balance $X, y$}
+    \Procedure{Balance}{$X, y, ratio$}\Comment{Balance $X, y$}
       \State $labels \gets \text{distinct } \textit{y}$
-      \State $majority \gets argmax(labels)$
+      \State $majority \gets argmax(count(y))$
       \State $nlabels \gets \text{length of } labels$
-      \State $nreq \gets int(n \times \text{number of majority samples in } \textit{y})$
+      \State $nreq \gets int(ratio \times \text{number of majority samples in } \textit{y})$
       \BState \emph{loop}:
       \For{i := 1 to \textit{nlabels}}
         \State $label \gets labels[i]$
         \If {$label \neq majority$}\Comment{Skip the majority class}
           \State $Xsub \gets X \text{where } y = label$
-          \State $p \gets nreq - \text{length of } Xsub$
+          \State $p \gets nreq - \text{length of } Xsub$\Comment{N required for this class}
           \State \text{Fit a Variational Autoencoder with $Xsub$, call it $vae$}
           \State \text{Generate $p$ synthetic examples from $vae$, update $X, y$}
         \EndIf
@@ -91,7 +95,7 @@ We present a generative over-sampling approach similar to SMOTE, by which the ob
   \end{algorithmic}
 \end{algorithm}
 
-\section{Computation}
+\section{SMRT Performance}
 
 
 % Manual newpage inserted to improve layout of sample file - not
@@ -120,7 +124,7 @@ which $v=0, w=0$ respectively, and let $I_{uv},I_{uw}$ be the
 respective empirical mutual information values based on the sample
 $\dataset$. Then
 \[
-	N_{v0} \;>\; N_{w0}\;\;\Rightarrow\;\;I_{uv} \;\leq\;I_{uw}
+  N_{v0} \;>\; N_{w0}\;\;\Rightarrow\;\;I_{uv} \;\leq\;I_{uw}
 \]
 with equality only if $u$ is identically 0.} \hfill\BlackBox
 
