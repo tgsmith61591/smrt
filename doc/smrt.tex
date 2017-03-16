@@ -107,7 +107,7 @@ We present a generative over-sampling approach similar to SMOTE, by which the ob
         \If {$label \neq majority$}\Comment{Skip the majority class}
           \State $Xsub \gets X \text{where } y = label$
           \State $p \gets nreq - \text{length of } Xsub$\Comment{\textit{n} needed for this class}
-          \State \text{Fit a Variational Autoencoder with $Xsub$, call it $vae$}
+          \State \text{Fit a variational auto-encoder with $Xsub$, call it $vae$}
           \State \text{Generate $p$ synthetic examples from $vae$, update $X, y$}
         \EndIf
       \EndFor
