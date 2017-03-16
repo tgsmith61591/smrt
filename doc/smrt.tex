@@ -31,7 +31,7 @@
 
 \begin{document}
 
-\title{On the Synthetic Augmentation of Minority Class Observations Using Variational Autoencoders}
+\title{On the Synthetic Augmentation of Minority Class Observations Using Variational Auto-Encoders}
 
 \author{\name Taylor G.\ Smith \email taylor.smith@alkaline-ml.com
        \AND
@@ -41,11 +41,11 @@
 \maketitle
 
 \begin{abstract}%   <- trailing '%' for backward compatibility of .sty file
-This document describes a methodology by which to remedy imbalanced datasets for the purpose of classification. A dataset may be considered imbalanced if its classification labels are exceedingly disproportionately represented across classes. In many real-world domains, class imbalance---or the presence of extremely rare events which may be costly-to-misclassify---is quite prevalent. Commonly cited problem domains include fraud detection, medical imaging, anomaly detection and countless more.  Our procedure furthers the Synthetic Minority Over-samping Technique \citep{chawla2002smote} by leveraging generative variational autoencoders.
+This document describes a methodology by which to remedy imbalanced datasets for the purpose of classification. A dataset may be considered imbalanced if its classification labels are exceedingly disproportionately represented across classes. In many real-world domains, class imbalance---or the presence of extremely rare events which may be costly-to-misclassify---is quite prevalent. Commonly cited problem domains include fraud detection, medical imaging, anomaly detection and countless more.  Our procedure furthers the Synthetic Minority Over-samping Technique \citep{chawla2002smote} by leveraging generative variational auto-encoders.
 \end{abstract}
 
 \begin{keywords}
-  classification, class-imbalance, cost-sensitive learning, SMOTE, variational autoencoders, skewed distributions
+  classification, class-imbalance, cost-sensitive learning, SMOTE, variational auto-encoders, skewed distributions
 \end{keywords}
 
 \section{Introduction}
@@ -62,17 +62,28 @@ Section 2 presents previous work to which our approach may be compared. Section 
 
 Over-sampling minority samples with replacement has been shown not to significantly improve classifier performance \citep{japkowicz2000learning}.  Chawla, Bowyer and Hall (2002) interpretted this phenomenon as being due to the lack of decision region generalization. They hypothesized over-sampling actually minimized the decision space as minority samples were replicated. Furthermore, they showed with SMOTE that synthetically-generated minority class observations effectively aided in generalizing the decision region for the minority class(es).
 
-\section{Variational Autoencoders}
+\section{Variational Auto-Encoders}
 
 The advent of generative algorithms is that they do not simply learn the classification boundaries between classes, as do discriminative algorithms, but model the (often intractable) distribution by which the data was generated. As a result, generative models allow us to create new, synthetic examples after learning the underlying distribution. 
 
-Autoencoders are a special case of multilayer perceptron (MLP) that estimates its own input vector as its output. 
+An auto-encoder, as originally introduced by Hinton and the PDP group \citep{rumelhart1985learning}, is a special case of a multilayer perceptron (MLP) that estimates its own input vector as its output. The implications of such a model offer the ability to effectively reconstruct inputs with minimal error, while identifying high-reconstruction-error examples as anomalous, or non-conformant to the underlying learned distribution. The general architecture of an auto-encoder is dual: the encoding task either compresses or expands the input signal into the hidden layer space, while the decode task projects the hidden layer-transformed values back to the input space.
 
-A variational autoencoder learns latent vectors which typically approximate a posterior unit Gaussian distribution with a diagonal covariance structure \citep{kingma2013auto}:
-\[
+
+A variational auto-encoder is a generative auto-encoder; it learns latent vectors, which typically approximate a unit Gaussian posterior, $\mathbf{z}$, with a diagonal covariance structure \citep{kingma2013auto}:
+\begin{equation}
     \log q_{\phi}(\mathbf{z}|\mathbf{x}^{(i)}) = \log \mathcal{N}(\mathbf{z}; \bm{\mu}^{(i)}, \bm{\sigma}^{2(i)}\mathbf{I})
-\]
-It achieves this by minimizing a dual loss-function: the combination of the reconstructive loss---the MSE of the input vector and the reconstructed vector---and the latent loss---the Kullback-Leibler (KL) divergence---which measures how well the latent vectors approximate the unit Gaussian.
+\end{equation}
+where the mean and standard deviation of $\mathbf{z}$ (the approximate posterior), $\bm{\mu}^{(i)}$ and $\bm{\sigma}^{(i)}$, are the results of the auto-encoder's encode task \citep{kingma2013auto}.
+
+It achieves this by minimizing a dual loss-function: the combination of the reconstructive loss---the MSE of the input vector and the reconstructed vector---and the latent loss---the Kullback-Leibler (KL) divergence---which measures how well the latent vectors approximate the unit Gaussian:
+\begin{equation}
+    D_{KL}(q_{\phi}(\mathbf{z}|\mathbf{x}^{(i)})\parallel p_{\theta}(\mathbf{z}))
+\end{equation}
+Finally, synthetic examples are generated by sampling the posterior:
+\begin{equation}
+    \mathbf{z}^{(i,l)} \sim q_{\phi}(\mathbf{z}|\mathbf{x}^{(i)})
+\end{equation}
+and finally decoding $\mathbf{z}^{(i,l)}$ with either a Bernoulli or Gaussian multilayer perceptron \citep{kingma2013auto}.
 
 \section{SMRT}
 
@@ -85,7 +96,7 @@ We present a generative over-sampling approach similar to SMOTE, by which the ob
 \begin{algorithm}
 \caption{SMRT}\label{smrt}
   \begin{algorithmic}[1]
-    \Procedure{Balance}{$X, y, ratio$}\Comment{Balance $X, y$}
+    \Procedure{Balance}{$X, y, ratio$}\Comment{Balance $X, y$ subject to $ratio$}
       \State $labels \gets \text{distinct } \textit{y}$
       \State $majority \gets argmax(count(y))$
       \State $nlabels \gets \text{length of } labels$
@@ -95,7 +106,7 @@ We present a generative over-sampling approach similar to SMOTE, by which the ob
         \State $label \gets labels[i]$
         \If {$label \neq majority$}\Comment{Skip the majority class}
           \State $Xsub \gets X \text{where } y = label$
-          \State $p \gets nreq - \text{length of } Xsub$\Comment{N required for this class}
+          \State $p \gets nreq - \text{length of } Xsub$\Comment{\textit{n} needed for this class}
           \State \text{Fit a Variational Autoencoder with $Xsub$, call it $vae$}
           \State \text{Generate $p$ synthetic examples from $vae$, update $X, y$}
         \EndIf
@@ -152,6 +163,8 @@ by $H$. We aim to show that $\fracpartial{I_{uv}}{P_{v0}} < 0$....\\
 
 
 \vskip 0.2in
+
+\newpage
 \bibliography{references}
 
 \end{document}
