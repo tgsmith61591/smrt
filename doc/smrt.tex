@@ -9,7 +9,9 @@
 % is archived at http://www.jmlr.org/format/natbib.pdf
 
 \usepackage{jmlr2e}
-\usepackage[]{algorithm2e}
+\usepackage{amsmath}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
 
 % Definitions of handy macros can go here
 
@@ -47,32 +49,55 @@ This document describes a methodology by which to remedy imbalanced datasets for
 
 \section{Introduction}
 
-Class imbalance is a frequent challenge in many applied machine learning domains. In extreme cases of disproportionately-represented classes, cost-insensitive evaluation metrics are inappropriate (CITATION NEEDED). The machine learning community has attempted to address the problem of class imbalance in two separate ways (Chawla, Bowyer, Hall \& Kegelmeyer, 2002): the development of cost-sensitive classification metrics, such as AUC (CITATION NEEDED) and the ROC convex hull (Provost \& Fawcett, 2001); and data preparation tasks that re-sample the input data before building a model. Our technique can be considered a distinct form of over-sampling the minority class, and can be most closely compared to SMOTE (Chawla, Bowyer, Hall \& Kegelmeyer, 2002).\\
-        Section 2 presents previous work to which our approach may be compared. Section 3 introduces generative models, and more specifically, variational auto-encoders. Section 4 outlines the details of our technique. Section 5 details the performance of our technique compared with other commonly class imbalance solutions. \\
+Class imbalance is a frequent challenge in many applied machine learning domains. In extreme cases of disproportionately-represented classes, cost-insensitive evaluation metrics are inappropriate (CITATION NEEDED). The machine learning community has attempted to address the problem of class imbalance in two separate ways (Chawla, Bowyer, Hall \& Kegelmeyer, 2002): weighting and resampling. Weighting involves assigning a cost to examples of each class in proportion to their misclassification cost. Resampling typically involves either oversampling the minority class, or undersampling the minority class before building a model. Our technique can be considered a distinct form of over-sampling the minority class, and can be most closely compared to SMOTE (Chawla, Bowyer, Hall \& Kegelmeyer, 2002).
+
+Section 2 presents previous work to which our approach may be compared. Section 3 introduces generative models, and more specifically, variational auto-encoders. Section 4 outlines the details of our technique. Section 5 details the performance of our technique compared with other commonly used class imbalance solutions. \\
 
 \section{Previous Work}
 
+Over-sampling minority samples with replacement has been shown to not significantly improve classifier performance (Japkowicz, 2000).  Chawla, Bowyer and Hall (2002) interpretted this phenomenon as being due to the lack of decision region generalization. Exposing the classifier to the same observation set multiple times allows it to learn those observations more effectively, but has the consequence of potentially overfitting those examples and therefore narrowing the decision boundry. Similarly, the work of Japkowicz showed that over-sampling minority observations that lie close to decision boundry displayed performance similar to naive over-sampling.
+
+Due to this limitaiton, Cahwla, Boyer and Hall proposed adding synthetic minority class observations to imbalanced datasets instead of sampling the minority class with replacement.  They implemented this approach in the SMOTE algorithm. SMOTE uses k-nearest neighbors to find minority class observations most similar to each minority class observation, then generates a new observation by taking the difference between the original observation and the neighbor, multipying the difference with a random number between 0 to 1, and adding the number to the original observation. The application of SMOTE has been shown to effectively aid in generalizing the decision region for the minority class(es) by synthetically-generating minority class observations.  
+
+--SMRT can be considered a distinct form of over-sampling the minority class, as it builds on the SMOTE paradigm by using variational autoencoders in place of k nearest neighbors to generate synthetic data. 
+
 \section{Generative Models}
+
+TODO: lots of equations will go in here...
 
 \section{SMRT}
 
-We present a generative over-sampling approach similar to SMOTE, by which the observations in each minority class are used to fit a variational auto-encoder, and synthetic examples are generated until the class is represented at the user-specified ratio. TODO: \\
+We present a generative over-sampling approach similar to SMOTE, by which the observations in each minority class are used to fit a variational auto-encoder, and synthetic examples are generated until the class is represented at the user-specified ratio. \\
 
-\begin{algorithm}[H]
- \KwData{this text}
- \KwResult{how to write algorithm with \LaTeX2e }
- initialization\;
- \While{not at end of this document}{
-  read current\;
-  \eIf{understand}{
-   go to next section\;
-   current section becomes this one\;
-   }{
-   go back to the beginning of current section\;
-  }
- }
- \caption{SMRT}
+\makeatletter
+\def\BState{\State\hskip-\ALG@thistlm}
+\makeatother
+
+\begin{algorithm}
+\caption{SMRT}\label{smrt}
+  \begin{algorithmic}[1]
+    \Procedure{Balance}{$X, y, n$}\Comment{Balance $X, y$}
+      \State $labels \gets \text{distinct } \textit{y}$
+      \State $majority \gets argmax(labels)$
+      \State $nlabels \gets \text{length of } labels$
+      \State $nreq \gets int(n \times \text{number of majority samples in } \textit{y})$
+      \BState \emph{loop}:
+      \For{i := 1 to \textit{nlabels}}
+        \State $label \gets labels[i]$
+        \If {$label \neq majority$}\Comment{Skip the majority class}
+          \State $Xsub \gets X \text{where } y = label$
+          \State $p \gets nreq - \text{length of } Xsub$
+          \State \text{Fit a Variational Autoencoder with $Xsub$, call it $vae$}
+          \State \text{Generate $p$ synthetic examples from $vae$, update $X, y$}
+        \EndIf
+      \EndFor
+      \Return{$X, y$}\Comment{Optionally shuffle}
+    \EndProcedure
+  \end{algorithmic}
 \end{algorithm}
+
+\section{Computation}
+
 
 % Manual newpage inserted to improve layout of sample file - not
 % needed in general before appendices/bibliography.
