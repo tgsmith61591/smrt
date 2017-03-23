@@ -14,6 +14,7 @@
 \usepackage{bm}
 \usepackage[noend]{algpseudocode}
 \usepackage{wrapfig}
+\usepackage{float}
 
 % Definitions of handy macros can go here
 
@@ -65,7 +66,7 @@ Section 2 presents previous work to which our approach may be compared. Section 
 
 Research on the efficacy of resampling as a preprocessing technique for imbalanced datasets has been extensively conducted. One common approach for resampling a training set is over-sampling the minority class examples with replacement \citep{japkowicz2000class}. She proposed several variants of over-sampling, with varying degrees of success. Her random resampling approach drew minority samples with replacement until the minority class was represented at the same magnitude as the majority class. She also proposed ``focused resampling," which only drew minority samples from along the decision boundary between the majority and minority classes. 
 
-Of note is the fact that she observed no clear advantage between generalized over-sampling and her ``focused" over-sampling \citep{japkowicz2000class}. \citet{chawla2002smote} hypothesized that this was due to the lack of decision region generalization and showed that over-sampling minority observations na\"ively could result in a reduced decision region by potentially duplicating observations that lay near a decision boundary.
+Of note is the fact that she observed no clear advantage between generalized over-sampling and her ``focused" over-sampling \citep{japkowicz2000class}. Using a decision tree classifier, \citet{chawla2002smote} showed that duplicating minority observations actually further narrowed the (theoretically, already very small) decision region, causing more splits in the tree and leading to overfitting.
 
 
 \subsection{Under-sampling majority class samples}
@@ -76,17 +77,42 @@ In conjunction with her research on over-sampling methods, \citet*{japkowicz2000
 
 \subsection{Synthesizing minority class samples}
 
-Rather than simply sampling the minority class with replacement, \cite{chawla2002smote} proposed the over-sampling of synthetic minority class observations.  As previously mentioned, they implemented the SMOTE algorithm which uses randomly sampled minority class observations' \emph{k}-nearest neighbors to generalize minority class decision region neighborhoods: for each randomly sampled minority observation, $\mathbf{x}^{(i)} \in \mathbb{R}^{n}$, compute the \emph{k}-nearest neighbors to $\mathbf{x}^{(i)}$, denoted as $\mathbf{J} \in \mathbb{R}^{k \times n}$, and generate a synthetic example between $\mathbf{x}^{(i)}$ and each nearest neighbor, $\mathbf{j}^{(l)}$:
+Rather than simply sampling the minority class with replacement, \cite{chawla2002smote} proposed the over-sampling of synthetic minority class observations.  As previously mentioned, they implemented the SMOTE algorithm which uses randomly sampled minority class observations' \emph{k}-nearest neighbors to generalize minority class decision region neighborhoods: for each of $p$ randomly sampled minority observations, $\mathbf{x}^{(i)} \in \mathbb{R}^{n}$, compute the \emph{k}-nearest neighbors to $\mathbf{x}^{(i)}$, denoted as $\mathbf{J} \in \mathbb{R}^{k \times n}$, and generate a synthetic example between $\mathbf{x}^{(i)}$ and each nearest neighbor, $\mathbf{j}^{(l)}$:
 \[
     \mathbf{x}^{(i)\prime} = \mathbf{x}^{(i)} + gap * (\mathbf{j}^{(l)} - \mathbf{x}^{(i)})
 \]
-where $gap$ is a random scalar between 0 and 1. The application of SMOTE has been shown to effectively aid in generalizing the decision region for the minority class(es) by synthetically generating minority class observations \citep*{chawla2002smote}. However, one of the trade-offs it makes the risk of ``\emph{over}-generalized'' minority decision regions in cases of significant class overlap. Figure 1 shows an unbalanced dataset with significant overlap between classes. The decision regions for the minority class are narrow with respect to the total decision space. Figure 2 shows the same dataset after being balanced by SMOTE. The decision region for the minority class, though significantly generalized, has bled so far into the majority class space as to diminish the usefulness of the classifier.
+where $gap$ is a random scalar between 0 and 1. The application of SMOTE has been shown to effectively aid in generalizing the decision region for the minority class(es) by synthetically generating minority class observations \citep*{chawla2002smote}. However, one of the trade-offs it makes the risk of ``\emph{over}-generalized'' minority decision regions in cases of significant class overlap.
+
+Figure 1 shows an unbalanced dataset with significant overlap between classes. The decision regions for the minority class are narrow with respect to the total decision space, and classification performance is poor. Figure 2 shows the same dataset after being balanced by SMOTE. The decision region for the minority class, though significantly generalized, has bled so far into the majority class space as to diminish the usefulness of the classifier.
+
+%\newpage
+%\centerline{
+%  \includegraphics[scale=.6]{no-balance.png}
+%}
+
+%\newpage
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=.5]{no-balance.png}
+    \caption[width=40mm]{An SVM classifier exhibits poor performance on a highly unbalanced dataset with significant class overlap \& a narrow decision region for the positive class.}
+    \label{fig:label}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=.5]{smote-balance.png}
+    \caption[width=40mm]{The same dataset, after being balanced with SMOTE. The decision region has been over-generalized to the point of diminishing the usefulness of the classifier.}
+    \label{fig:label}
+\end{figure}
+
+
 
 \section{Variational Auto-Encoders}
 
-The advent of generative algorithms is that they do not simply learn the classification boundaries between classes, as do discriminative algorithms, but model the (often intractable) distribution by which the data was generated. As a result, generative models allow us to create new, synthetic examples after learning the underlying distribution. 
+Generative methods are a family of unsupervised learning techniques that can be used to generate observations given some latent distribution. The advent of generative algorithms is that they do not simply learn the classification boundaries between classes, as do discriminative algorithms, but model the (often intractable) distribution by which the data was generated. As a result, generative models allow us to create new, synthetic examples by inferring the posterior. 
 
-An auto-encoder, as originally introduced by Hinton and the PDP group \citep{rumelhart1985learning}, is a special case of a multilayer perceptron (MLP) that estimates its own input vector as its output. The implications of such a model offer the ability to effectively reconstruct inputs with minimal error, while identifying high-reconstruction-error examples as anomalous, or non-conformant to the underlying learned distribution. The general architecture of an auto-encoder is dual: the encoding task either compresses or expands the input signal into the hidden layer space, while the decode task projects the hidden layer-transformed values back to the input space.
+An auto-encoder, as originally introduced by Hinton and the PDP group \citep{rumelhart1985learning}, is a special case of a multilayer perceptron (MLP) that estimates its own input vector as its output.
+
+The implications of such a model offer the ability to effectively reconstruct inputs with minimal error, while identifying high-reconstruction-error examples as anomalous, or non-conformant to the underlying learned distribution. The general architecture of an auto-encoder is dual: the encoding task either compresses or expands the input signal into the hidden layer space, while the decode task projects the hidden layer-transformed values back to the input space.
 
 
 A variational auto-encoder is a generative auto-encoder; it learns latent vectors, which typically approximate a unit Gaussian posterior, $\mathbf{z}$, with a diagonal covariance structure \citep{kingma2013auto}:
