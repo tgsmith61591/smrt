@@ -101,7 +101,7 @@ Figure 1 shows an unbalanced dataset with significant overlap between classes. T
 \begin{figure}[H]
     \centering
     \includegraphics[scale=.5]{smote-balance.png}
-    \caption[width=40mm]{The same dataset, after being balanced with SMOTE. The decision region has been over-generalized to the point of diminishing the usefulness of the classifier.}
+    \caption[width=40mm]{The same dataset, after being balanced with SMOTE. The decision region has been over-generalized to the point of bleeding so far into the positive decision space that the usefulness of the classifier is diminished.}
     \label{fig:label}
 \end{figure}
 
@@ -109,11 +109,11 @@ Figure 1 shows an unbalanced dataset with significant overlap between classes. T
 
 \section{Generative Models}
 
-At a high level, generative methods are a family of unsupervised learning techniques that can be trained to generate synthetic data. Easy to conceptualize is the case of image datasets, where a model can be thought of as not simply memorizing input samples for some classification task, but learning features that can be used to create a stylistically canonical image that is completely fake, yet resembles a sample that \emph{could} have been presented to the inducer for training. Thus, the advent of generative algorithms is that they do not simply learn the classification boundaries between classes---as do discriminative algorithms---but model the (often intractable) distribution by which the data itself was generated. 
+At a high level, generative methods are a family of unsupervised learning techniques that can be trained to generate synthetic data. Easy to conceptualize is the case of image datasets, where a model can be thought of as not simply memorizing input samples for some classification task, but learning features that can be used to create a stylistically canonical image that is completely fake, yet resembles a sample that \emph{could} have been presented to the inducer for training. Thus, the advent of generative algorithms is that they do not simply learn the classification boundaries between classes---as do discriminative algorithms---but model the (often intractable) distribution by which the data itself was generated. SMRT is built atop variational auto-encoders, which are explained in the following sub-section.
 
 \subsection{Variational Auto-Encoders}
 
-An auto-encoder, as originally introduced by Hinton and the PDP group \citep{rumelhart1985learning}, is a special case of a multilayer perceptron (MLP) that estimates its own input vector as its output.
+An auto-encoder, originally introduced by Hinton and the PDP group \citep{rumelhart1985learning}, is a special case of unsupervised multilayer perceptron (MLP) that estimates its own input vector as its output. In a more formal sense, the auto-encoder takes some input vector $\mathbf{x} \in  \mathbb{R}^{n}$ and maps it deterministically to some hidden representation (typically a compressed space) $\mathbf{y} \in  \mathbb{R}^{h}$ via $\mathbf{y} = f_{\theta}(\mathbf{x}) = g(\mathbf{Wx} + b)$, where $\mathbf{W}$ is a $n \times h$ matrix of weights parameterized by $\theta = \{\mathbf{W, b}\}$ \citep{meyer2015introduction}. $b \in \mathbb{R}^{h}$ is a vector of biases generally initialized as $\vec{1}$, and $g$ is the activation function---commonly either the \emph{sigmoid} or \emph{ReLu}: TODO
 
 The implications of such a model offer the ability to effectively reconstruct inputs with minimal error, while identifying high-reconstruction-error examples as anomalous, or non-conformant to the underlying learned distribution. The general architecture of an auto-encoder is dual: the encoding task either compresses or expands the input signal into the hidden layer space, while the decode task projects the hidden layer-transformed values back to the input space.
 
