@@ -11,7 +11,7 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder
 
 from .base import _validate_X_y_ratio_classes
-from ..utils import get_random_state, validate_float
+from ..utils import get_random_state
 from ..autoencode import VariationalAutoEncoder
 from . import base
 
@@ -19,15 +19,11 @@ __all__ = [
     'smrt_balance'
 ]
 
-DEFAULT_SEED = base.DEFAULT_SEED
-MAX_N_CLASSES = base.MAX_N_CLASSES
-MIN_N_SAMPLES = base.MIN_N_SAMPLES
-
 
 def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, balance_ratio=0.2,
                  activation_function='sigmoid', learning_rate=0.05, n_epochs=20, batch_size=128, min_change=1e-6,
                  verbose=0, display_step=5, learning_function='rms_prop', early_stopping=False, bias_strategy='zeros',
-                 random_state=DEFAULT_SEED, layer_type='xavier', dropout=1., l2_penalty=0.0001,
+                 random_state=base.DEFAULT_SEED, layer_type='xavier', dropout=1., l2_penalty=0.0001,
                  eps=1e-10, shuffle=True, generate_args={}):
     """SMRT (Sythetic Minority Reconstruction Technique) is the younger, more sophisticated cousin to
     SMOTE (Synthetic Minority Oversampling TEchnique). Using variational auto-encoders, SMRT learns the
