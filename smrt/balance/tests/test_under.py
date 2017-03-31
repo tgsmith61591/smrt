@@ -7,6 +7,7 @@
 from __future__ import division, absolute_import, division
 from sklearn.datasets import load_iris
 from smrt.balance import under_sample_balance
+from numpy.testing import assert_array_almost_equal
 import numpy as np
 
 
@@ -27,3 +28,8 @@ def test_under_simple():
     assert counts[labels == 0][0] == 20
     assert counts[labels == 1][0] == 10
     assert counts[labels == 2][0] == 20
+
+    # show that same class sizes won't re-sample
+    X, y = iris.data, iris.target
+    X_bal, y_bal = under_sample_balance(X, y, balance_ratio=1.0, random_state=42, shuffle=False)
+    assert_array_almost_equal(X_bal, X)
