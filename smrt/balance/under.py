@@ -16,6 +16,14 @@ __all__ = [
 ]
 
 
+def _reorder(X, y, random_state, shuffle):
+    # reorder if needed
+    order = np.arange(X.shape[0])
+    if shuffle:
+        order = random_state.permutation(order)
+    return X[order, :], y[order]
+
+
 def under_sample_balance(X, y, balance_ratio=0.2, random_state=base.DEFAULT_SEED, shuffle=True):
     """One strategy for balancing data is to under-sample the majority class until it is
     represented at the prescribed ``balance_ratio``. This can be effective in cases where the
@@ -51,8 +59,12 @@ def under_sample_balance(X, y, balance_ratio=0.2, random_state=base.DEFAULT_SEED
     X, y, n_classes, present_classes, \
         counts, majority_label, _ = _validate_X_y_ratio_classes(X, y, balance_ratio)
 
-    # get the second-most populous count
-    target_count = max(int(np.sort(counts)[-2] / balance_ratio), 1)
+    # get the second-most populous count, compute target
+    sorted_counts = np.sort(counts)
+    if sorted_counts[-1] == sorted_counts[-2]:  # corner case
+        return _reorder(X, y, random_state, shuffle)
+
+    target_count = max(int(sorted_counts[-2] / balance_ratio), 1)
 
     # select which rows gotta go...
     idcs = np.arange(X.shape[0])
@@ -64,7 +76,4 @@ def under_sample_balance(X, y, balance_ratio=0.2, random_state=base.DEFAULT_SEED
     y = np.delete(y, remove)
 
     # reorder if needed
-    order = np.arange(X.shape[0])
-    if shuffle:
-        order = random_state.permutation(order)
-    return X[order, :], y[order]
+    return _reorder(X, y, random_state, shuffle)
