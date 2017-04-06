@@ -113,7 +113,9 @@ At a high level, generative methods are a family of unsupervised learning techni
 
 \subsection{Variational Auto-Encoders}
 
-An auto-encoder, originally introduced by Hinton and the PDP group \citep{rumelhart1985learning}, is a special case of unsupervised multilayer perceptron (MLP) that estimates its own input vector as its output. In a more formal sense, the auto-encoder takes some input vector $\mathbf{x} \in  \mathbb{R}^{n}$ and maps it deterministically to some hidden representation (typically a compressed space) $\mathbf{y} \in  \mathbb{R}^{h}$ via $\mathbf{y} = f_{\theta}(\mathbf{x}) = g(\mathbf{Wx} + b)$, where $\mathbf{W}$ is a $n \times h$ matrix of weights parameterized by $\theta = \{\mathbf{W, b}\}$ \citep{meyer2015introduction}. $b \in \mathbb{R}^{h}$ is a vector of biases generally initialized as $\vec{1}$, and $g$ is the activation function---commonly either the \emph{sigmoid} or \emph{ReLu}: TODO
+An auto-encoder is a special case of unsupervised multilayer perceptron (MLP) that estimates its own input vector as its output. In a more formal sense, the auto-encoder takes some input vector $\mathbf{x} \in  \mathbb{R}^{n}$ and maps it deterministically to some hidden representation (typically a compressed space) $\mathbf{y} \in  \mathbb{R}^{h}$ via $\mathbf{y} = f_{\theta}(\mathbf{x}) = g(\mathbf{Wx} + b)$, where $\mathbf{W}$ is a $n \times h$ matrix of weights parameterized by $\theta = \{\mathbf{W, b}\}$ \citep{meyer2015introduction}. $b \in \mathbb{R}^{h}$ is a vector of biases generally initialized as $\vec{1}$, and $g$ is the activation function---commonly either the \emph{sigmoid} or \emph{ReLu}: TODO
+
+The goal, then, is that the mapping of $\mathbf{x} \rightarrow \mathbf{y}$ reveals some compressed representation of $\mathbf{x}$, thus extracting otherwise unobvious features.
 
 The implications of such a model offer the ability to effectively reconstruct inputs with minimal error, while identifying high-reconstruction-error examples as anomalous, or non-conformant to the underlying learned distribution. The general architecture of an auto-encoder is dual: the encoding task either compresses or expands the input signal into the hidden layer space, while the decode task projects the hidden layer-transformed values back to the input space.
 
@@ -168,51 +170,6 @@ We present a generative over-sampling approach similar to SMOTE, by which the ob
 
 \section{SMRT Performance}
 
-
-% Manual newpage inserted to improve layout of sample file - not
-% needed in general before appendices/bibliography.
-
-\newpage
-
-\appendix
-\section*{Appendix A.}
-\label{app:theorem}
-
-% Note: in this sample, the section number is hard-coded in. Following
-% proper LaTeX conventions, it should properly be coded as a reference:
-
-%In this appendix we prove the following theorem from
-%Section~\ref{sec:textree-generalization}:
-
-In this appendix we prove the following theorem from
-Section~6.2:
-
-\noindent
-{\bf Theorem} {\it Let $u,v,w$ be discrete variables such that $v, w$ do
-not co-occur with $u$ (i.e., $u\neq0\;\Rightarrow \;v=w=0$ in a given
-dataset $\dataset$). Let $N_{v0},N_{w0}$ be the number of data points for
-which $v=0, w=0$ respectively, and let $I_{uv},I_{uw}$ be the
-respective empirical mutual information values based on the sample
-$\dataset$. Then
-\[
-  N_{v0} \;>\; N_{w0}\;\;\Rightarrow\;\;I_{uv} \;\leq\;I_{uw}
-\]
-with equality only if $u$ is identically 0.} \hfill\BlackBox
-
-\noindent
-{\bf Proof}. We use the notation:
-\[
-P_v(i) \;=\;\frac{N_v^i}{N},\;\;\;i \neq 0;\;\;\;
-P_{v0}\;\equiv\;P_v(0)\; = \;1 - \sum_{i\neq 0}P_v(i).
-\]
-These values represent the (empirical) probabilities of $v$
-taking value $i\neq 0$ and 0 respectively.  Entropies will be denoted
-by $H$. We aim to show that $\fracpartial{I_{uv}}{P_{v0}} < 0$....\\
-
-{\noindent \em Remainder omitted in this sample. See http://www.jmlr.org/papers/ for full paper.}
-
-
-\vskip 0.2in
 
 \newpage
 \bibliography{references}
