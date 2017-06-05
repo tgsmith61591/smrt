@@ -35,8 +35,10 @@ learns a distribution that is generalizable to the lowest-error (i.e., most arch
 
 ## Example
 
-The [SMRT example](examples/) compares an imbalanced variant of the MNIST dataset after being balanced with both SMOTE
-and SMRT.
+The [SMRT example](examples/) is an ipython notebook with reproducible code and data that compares an imbalanced
+variant of the MNIST dataset after being balanced with both SMOTE and SMRT. The following are several of the resulting
+images produced from both SMOTE and SMRT, respectively. Even visually, it's evident that SMRT better synthesizes data
+that resembles the input data.
 
 ### Original:
 
