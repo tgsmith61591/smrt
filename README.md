@@ -1,9 +1,9 @@
 [![Build status](https://travis-ci.org/tgsmith61591/smrt.svg?branch=master)](https://travis-ci.org/tgsmith61591/smrt)
-![Supported versions](https://img.shields.io/badge/python-2.7-blue.svg) 
-![Supported versions](https://img.shields.io/badge/python-3.5-blue.svg)
+[![codecov](https://codecov.io/gh/tgsmith61591/smrt/branch/master/graph/badge.svg)](https://codecov.io/gh/tgsmith61591/smrt)
+![Supported versions](https://img.shields.io/badge/python-2.7, 3.5-blue.svg)
 
 
-# Synthetic Minority Reconstruction Technique (SMRT)
+# Synthetic Minority Reconstruction Technique ([SMRT](https://www.youtube.com/watch?v=tcGQpjCztgA))
 *Handle your class imbalance more intelligently by using SMOTE's younger, more sophisticated cousin*
 
 
@@ -36,4 +36,3 @@ learns a distribution that is generalizable to the lowest-error (i.e., most arch
 
 - See [examples](examples/) for usage
 - Information on [the authors](AUTHORS.md)
-- S-M-R-T [original reference](https://www.youtube.com/watch?v=tcGQpjCztgA) (enable audio)

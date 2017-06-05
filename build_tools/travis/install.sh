@@ -43,6 +43,7 @@ if [[ "$DISTRIB" == "conda" ]]; then
 
     pip install scikit-learn==$SCIKIT_LEARN_VERSION
     pip install coveralls
+    pip install codecov
 
     # Install TensorFlow
     # we have to make sure we install the CPU version otherwise we get into GCC/G++ issues...
