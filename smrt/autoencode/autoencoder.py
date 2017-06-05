@@ -112,13 +112,13 @@ class _SymmetricAutoEncoder(six.with_metaclass(ABCMeta, BaseAutoEncoder)):
 
         return cost_function
 
-    def fit(self, X, y=None, **kwargs):
+    def fit(self, X, y=None, **run_args):
         X, cost_function, optimizer, dropout = self._initialize_graph(X, y)
 
         # do training
-        return self._train(self.X_placeholder, X, cost_function, optimizer, dropout)
+        return self._train(self.X_placeholder, X, cost_function, optimizer, dropout, **run_args)
 
-    def _train(self, X_placeholder, X_original, cost_function, optimizer, dropout):
+    def _train(self, X_placeholder, X_original, cost_function, optimizer, dropout, **run_args):
         # initialize global vars for tf - replace them if they already exist
         init = tf.global_variables_initializer()
         self.clean_session()
@@ -154,7 +154,9 @@ class _SymmetricAutoEncoder(six.with_metaclass(ABCMeta, BaseAutoEncoder)):
                 assert m <= self.batch_size and m != 0  # sanity check
 
                 # train the batch - runs optimization op (backprop) and cost op (to get loss value)
-                _, c = sess.run([optimizer, cost_function], feed_dict={X_placeholder: chunk, dropout: self.dropout})
+                _, c = sess.run([optimizer, cost_function],
+                                feed_dict={X_placeholder: chunk, dropout: self.dropout},
+                                **run_args)
 
             # add the time to the times array to compute average later
             epoch_time = time.time() - start_time
@@ -193,7 +195,7 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
     can also be used for such tasks as de-noising and anomaly detection. It can be crudely thought
     of as similar to a "non-linear PCA."
 
-    The ``ReconstructiveAutoEncoder`` class learns to reconstruct its input, minizing the MSE between
+    The ``AutoEncoder`` class learns to reconstruct its input, minimizing the MSE between
     training examples and the reconstructed output thereof.
 
 
@@ -360,10 +362,8 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
     can also be used for such tasks as de-noising and anomaly detection. It can be crudely thought
     of as similar to a "non-linear PCA."
 
-    The ``ReconstructiveAutoEncoder`` class, as it is intended in ``smrt``, is used to ultimately identify
-    the more minority-class-phenotypical training examples to "jitter" and reconstruct as
-    synthetic training set observations. The auto-encoder only uses TensorFlow for the model :meth:``fit``,
-    and retains the numpy arrays of model weights and biases for offline model scoring.
+    The ``VariationalAutoEncoder`` class, as it is intended in ``smrt``, is used to ultimately identify
+    the more archetypal minority-class training examples to generate observations.
 
 
     Parameters
@@ -550,8 +550,8 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
 
         # see https://github.com/fastforwardlabs/vae-tf/blob/master/vae.py#L194
         if z_mu is not None:
-            is_tensor = lambda x: hasattr(x, 'eval')
-            z_mu = (self.sess.run(z_mu) if is_tensor(z_mu) else z_mu)
+            # is_tensor = lambda x: hasattr(x, 'eval')  # no longer PEP 8 standard
+            z_mu = (self.sess.run(z_mu) if hasattr(z_mu, 'eval') else z_mu)
         else:
             z_mu = get_random_state(self.random_state).normal(size=(n, self.n_latent_factors), **nrm_args)
 
