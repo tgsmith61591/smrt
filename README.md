@@ -39,13 +39,13 @@ The [SMRT example](examples/) compares an imbalanced variant of the MNIST datase
 and SMRT.
 
 __Original__:
-![Original](examples/img/mnist.png)
+<img src="examples/img/mnist.png" width="1164" height="116" alt="Original"/>
 
 __SMOTE__:
-![SMOTE](examples/img/smote.png)
+<img src="examples/img/smote.png" width="1164" height="116" alt="SMOTE"/>
 
 __SMRT__:
-![SMRT](examples/img/smrt.png)
+<img src="examples/img/smrt.png" width="1164" height="116" alt="SMRT"/>
 
 ### Notes
 
