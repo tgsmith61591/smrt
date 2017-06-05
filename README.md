@@ -33,6 +33,20 @@ too close to the decision boundary for reliable classification, and could lead t
 of an estimator. SMRT avoids this risk implicitly, as the [``VariationalAutoencoder``](smrt/autoencode/autoencoder.py)
 learns a distribution that is generalizable to the lowest-error (i.e., most archetypal) observations.
 
+### Example
+
+The [SMRT example](examples/) compares an imbalanced variant of the MNIST dataset after being balanced with both SMOTE
+and SMRT.
+
+__Original__:
+![Original](examples/img/mnist.png)
+
+__SMOTE__:
+![SMOTE](examples/img/smote.png)
+
+__SMRT__:
+![SMRT](examples/img/smrt.png)
+
 ### Notes
 
 - See [examples](examples/) for usage
