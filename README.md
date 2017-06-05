@@ -40,15 +40,21 @@ and SMRT.
 
 __Original__:
 <br/>
-<img src="examples/img/mnist.png" width="600" alt="Original"/>
+<div style="text-align:center">
+    <img src="examples/img/mnist.png" width="600" alt="Original"/>
+</div>
 
 __SMOTE__:
 <br/>
-<img src="examples/img/smote.png" width="600" alt="SMOTE"/>
+<div style="text-align:center">
+    <img src="examples/img/smote.png" width="600" alt="SMOTE"/>
+</div>
 
 __SMRT__:
 <br/>
-<img src="examples/img/smrt.png" width="600" alt="SMRT"/>
+<div style="text-align:center">
+    <img src="examples/img/smrt.png" width="600" alt="SMRT"/>
+</div>
 
 ### Notes
 
