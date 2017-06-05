@@ -1,6 +1,7 @@
 [![Build status](https://travis-ci.org/tgsmith61591/smrt.svg?branch=master)](https://travis-ci.org/tgsmith61591/smrt)
 [![codecov](https://codecov.io/gh/tgsmith61591/smrt/branch/master/graph/badge.svg)](https://codecov.io/gh/tgsmith61591/smrt)
-![Supported versions](https://img.shields.io/badge/python-2.7, 3.5-blue.svg)
+![Supported versions](https://img.shields.io/badge/python-2.7-blue.svg)
+![Supported versions](https://img.shields.io/badge/python-3.5-blue.svg)
 
 
 # Synthetic Minority Reconstruction Technique ([SMRT](https://www.youtube.com/watch?v=tcGQpjCztgA))
