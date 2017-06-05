@@ -8,7 +8,7 @@
 *Handle your class imbalance more intelligently by using SMOTE's younger, more sophisticated cousin*
 
 
-### Installation
+## Installation
 
 Installation is easy. After cloning the project onto your machine and installing the required dependencies,
 simply use the `setup.py` file:
@@ -19,7 +19,7 @@ $ cd smrt
 $ python setup.py install
 ```
 
-### About
+## About
 
 SMRT (Sythetic Minority Reconstruction Technique) is the new SMOTE (Synthetic Minority Oversampling TEchnique).
 Using variational auto-encoders, SMRT learns the latent factors that best reconstruct the observations in each
@@ -33,28 +33,31 @@ too close to the decision boundary for reliable classification, and could lead t
 of an estimator. SMRT avoids this risk implicitly, as the [``VariationalAutoencoder``](smrt/autoencode/autoencoder.py)
 learns a distribution that is generalizable to the lowest-error (i.e., most archetypal) observations.
 
-### Example
+## Example
 
 The [SMRT example](examples/) compares an imbalanced variant of the MNIST dataset after being balanced with both SMOTE
 and SMRT.
 
-__Original__:
-<br/>
-<p align="center">
-    <img src="examples/img/mnist.png" width="600" alt="Original"/>
-</p>
+### Original:
 
-__SMOTE__:
+The MNIST dataset was amended to contain only zeros and ones in an unbalanced (~1:11, respectively) ratio. Here are
+several of the original images for reference:
 <br/>
-<p align="center">
-    <img src="examples/img/smote.png" width="600" alt="SMOTE"/>
-</p>
+<img src="examples/img/mnist.png" width="600" alt="Original"/>
 
-__SMRT__:
+### SMOTE:
+
+The unbalanced set was balanced with SMOTE as a baseline to exemplify the result of the current standard approach.
+These are the resulting images:
 <br/>
-<p align="center">
-    <img src="examples/img/smrt.png" width="600" alt="SMRT"/>
-</p>
+<img src="examples/img/smote.png" width="600" alt="SMOTE"/>
+
+### SMRT:
+
+Finally, the unbalanced set was balanced using a variational auto-encoder and the SMRT algorithm. These are the
+resulting images. Note how much more they resemble the actual input images:
+<br/>
+<img src="examples/img/smrt.png" width="600" alt="SMRT"/>
 
 ### Notes
 
