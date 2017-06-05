@@ -33,6 +33,8 @@ too close to the decision boundary for reliable classification, and could lead t
 of an estimator. SMRT avoids this risk implicitly, as the [``VariationalAutoencoder``](smrt/autoencode/autoencoder.py)
 learns a distribution that is generalizable to the lowest-error (i.e., most archetypal) observations.
 
+__See [the paper](doc/smrt.tex) for more in-depth reference.__
+
 ## Example
 
 The [SMRT example](examples/) is an ipython notebook with reproducible code and data that compares an imbalanced
@@ -64,4 +66,5 @@ resulting images. Note how much more they resemble the actual input images:
 ### Notes
 
 - See [examples](examples/) for usage
+- See [the paper](doc/smrt.tex) for more in-depth documentation
 - Information on [the authors](AUTHORS.md)
