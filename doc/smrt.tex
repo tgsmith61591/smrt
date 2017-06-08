@@ -57,7 +57,7 @@ This paper presents some of the pitfalls of training machine learning models on 
 
 One of the notable risks of working with imbalanced datasets is the seeming compounding effect they have on a modeling pipeline; model selection tasks such as grid searches can be especially confounded by this issue, since the metric a grid search is intended to optimize may lie in direct discord with the underlying cost sensitivity of the imbalanced classification task itself (CITATION?). What makes class imbalance an particularly interesting and relevant problem is the frequent tangible cost with which misclassification of rare events is typically associated. The real-world impact of such errors can be especially perilous in the medical domain, where diagnostic datasets are especially susceptible to class disparity, as high risk examples tend to constitute the minority class \citep{rahman2013addressing}.
 
-Section 2 presents previous work to which our approach may be compared. Section 3 introduces generative models, and more specifically, variational auto-encoders. Section 4 outlines the details of our technique. Section 5 details the performance of our technique compared with other common class imbalance solutions. \\
+Section 2 presents previous work to which our approach may be compared. Section 3 introduces generative models, and more specifically, variational auto-encoders. Section 4 outlines the details of our technique. Section 5 details the specifics of our experiments and the performance of our technique compared with other common class imbalance solutions. \\
 
 \section{Previous Work}
 
@@ -109,7 +109,7 @@ Figure 1 shows an unbalanced dataset with significant overlap between classes. T
 
 \section{Generative Models}
 
-At a high level, generative methods are a family of unsupervised learning techniques that can be trained to generate synthetic data. Easy to conceptualize is the case of image datasets, where a model can be thought of as not simply memorizing input samples for some classification task, but learning features that can be used to create a stylistically canonical image that is completely fake, yet resembles a sample that \emph{could} have been presented to the inducer for training. Thus, the advent of generative algorithms is that they do not simply learn the classification boundaries between classes---as do discriminative algorithms---but model the (often intractable) distribution by which the data itself was generated.
+At a high level, generative methods are a family of unsupervised learning techniques that can be trained to generate synthetic data. Easy to conceptualize is the case of image datasets, where a model can be thought of as not simply memorizing input samples for some classification task, but learning features that can be used to create a stylistically canonical image that is completely fake, yet resembles a sample that \emph{could} have been presented to the inducer for training. Thus, the advent of generative algorithms is that they do not simply learn the classification boundaries between classes---as do discriminative algorithms---but model the distribution by which the data itself was generated.
 
 \subsection{Variational Auto-Encoders}
 
@@ -120,26 +120,23 @@ SMRT is built atop variational auto-encoders. An auto-encoder is a special case 
 \[
     \mathrm{relu(x)} = \mathrm{max}(0,x)
 \]
-The goal, then, is that the mapping of $\mathbf{x} \rightarrow \mathbf{y}$ reveals some compressed representation of $\mathbf{x}$, thus extracting new features derived by otherwise unobvious relationships between input features.
+The goal, then, is that the mapping of $\mathbf{x} \rightarrow \mathbf{y}$ reveals some compressed representation of $\mathbf{x}$, thus extracting new features derived by otherwise unobvious relationships between input features. The implications of such a model offer the ability to effectively reconstruct inputs with minimal error, while identifying high-reconstruction-error examples as anomalous, or non-conformant to the underlying learned distribution. The general architecture of an auto-encoder is dual: the encoding task either compresses or expands the input signal into the hidden layer space, while the decode task projects the hidden layer-transformed values back to the input space.
 
-The implications of such a model offer the ability to effectively reconstruct inputs with minimal error, while identifying high-reconstruction-error examples as anomalous, or non-conformant to the underlying learned distribution. The general architecture of an auto-encoder is dual: the encoding task either compresses or expands the input signal into the hidden layer space, while the decode task projects the hidden layer-transformed values back to the input space.
-
-
-A \emph{variational} auto-encoder (VAE) is a generative auto-encoder; it learns latent vectors, which typically approximate a unit Gaussian posterior, $\mathbf{z}$, with a diagonal covariance structure \citep{kingma2013auto}:
+Whereas general auto-encoders are deterministic MLPs, the \emph{variational} auto-encoder (VAE) is a generative adaptation that consists of two parts: a \emph{probabilistic} encoder, $q_{\phi}(\mathbf{z}|\mathbf{x}^{(i)})$, that approximates the (intractable) posterior distribution, $p(\mathbf{z}|\mathbf{x}^{(i)})$; and a \emph{generative} decoder, $p_{\theta}(\mathbf{x}^{(i)}|\mathbf{z})$ which does not depend on any input \citep{shiffman2016}. VAEs learn latent vectors, which approximate a unit Gaussian posterior, $\mathbf{z}$, with a diagonal covariance structure \citep{kingma2013auto}:
 \[
     \log q_{\phi}(\mathbf{z}|\mathbf{x}^{(i)}) = \log \mathcal{N}(\mathbf{z}; \bm{\mu}^{(i)}, \bm{\sigma}^{2(i)}\mathbf{I})
 \]
-where the mean and standard deviation of $\mathbf{z}$ (the approximate posterior), $\bm{\mu}^{(i)}$ and $\bm{\sigma}^{(i)}$, are the results of the auto-encoder's encode task \citep{kingma2013auto}.
+where the mean and standard deviation of $\mathbf{z}$ (the approximate posterior), $\bm{\mu}^{(i)}$ and $\bm{\sigma}^{(i)}$, are the output of the auto-encoder's encode task \citep{kingma2013auto}.
 
-It achieves this by minimizing a dual loss-function: the combination of the reconstructive loss---the MSE of the input vector and the reconstructed vector---and the latent loss---the Kullback-Leibler (KL) divergence---which measures how well the latent vectors approximate the unit Gaussian:
+The VAE parameters are found by minimizing a dual loss-function: the combination of the reconstructive loss---the MSE of the input vector and the reconstructed vector---and the latent loss---the Kullback-Leibler (KL) divergence---which measures how well the latent vectors approximate the unit Gaussian:
 \[
     D_{KL}(q_{\phi}(\mathbf{z}|\mathbf{x}^{(i)})\parallel p_{\theta}(\mathbf{z}))
 \]
-Finally, synthetic examples are generated by sampling the posterior:
+In the decode stage, synthetic examples are generated by sampling the posterior:
 \[
     \mathbf{z}^{(i,l)} \sim q_{\phi}(\mathbf{z}|\mathbf{x}^{(i)})
 \]
-and finally decoding $\mathbf{z}^{(i,l)}$ with either a Bernoulli or Gaussian multilayer perceptron \citep{kingma2013auto}. The utility of such a method for the task of class balancing is that the VAE-approximated distribution will generate synthetic examples that are more probabilistically archetypal.
+and finally decoding $\mathbf{z}^{(i,l)}$ with either a Bernoulli or Gaussian multilayer perceptron \citep{kingma2013auto}. The utility of using VAEs for class balancing is that the approximated posterior distribution will generate synthetic examples that are more probabilistically archetypal.
 
 
 \section{SMRT}
@@ -173,7 +170,11 @@ We present a generative over-sampling approach similar to SMOTE, by which the ob
   \end{algorithmic}
 \end{algorithm}
 
-\section{SMRT Performance}
+\section{Experiments}
+
+We used induced three different learners on each dataset ... TODO
+
+\subsection{Datasets}
 
 
 \newpage
