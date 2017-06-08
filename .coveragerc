@@ -1,5 +1,6 @@
 [run]
 source = smrt
+include = */smrt/*
 omit =
     */python?.?/*
     */lib-python/?.?/*.py

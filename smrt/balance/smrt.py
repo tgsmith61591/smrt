@@ -11,7 +11,7 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder
 
 from .base import _validate_X_y_ratio_classes
-from ..utils import get_random_state, validate_float
+from ..utils import get_random_state
 from ..autoencode import VariationalAutoEncoder
 from . import base
 
@@ -19,16 +19,13 @@ __all__ = [
     'smrt_balance'
 ]
 
-DEFAULT_SEED = base.DEFAULT_SEED
-MAX_N_CLASSES = base.MAX_N_CLASSES
-MIN_N_SAMPLES = base.MIN_N_SAMPLES
-
 
 def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, balance_ratio=0.2,
-                 activation_function='sigmoid', learning_rate=0.05, n_epochs=20, batch_size=128, min_change=1e-6,
+                 activation_function='sigmoid', learning_rate=0.05, n_epochs=20, batch_size=128, min_change=1e-3,
                  verbose=0, display_step=5, learning_function='rms_prop', early_stopping=False, bias_strategy='zeros',
-                 random_state=DEFAULT_SEED, layer_type='xavier', dropout=1., l2_penalty=0.0001,
-                 eps=1e-10, shuffle=True, generate_args={}):
+                 random_state=base.DEFAULT_SEED, layer_type='xavier', dropout=1., l2_penalty=0.0001,
+                 eps=1e-10, gclip_min=-5., gclip_max=5., clip=True, shuffle=True, generate_args=None,
+                 prefit_estimators=None):
     """SMRT (Sythetic Minority Reconstruction Technique) is the younger, more sophisticated cousin to
     SMOTE (Synthetic Minority Oversampling TEchnique). Using variational auto-encoders, SMRT learns the
     latent factors that best reconstruct the observations in each minority class, and then generates synthetic
@@ -43,9 +40,9 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
     
     Parameters
     ----------
-    X : array-like, shape (n_samples, n_inputs)
+    X : array-like, shape (n_samples, n_features)
         Training vectors as real numbers, where ``n_samples`` is the number of
-        samples and ``n_inputs`` is the number of input features.
+        samples and ``n_features`` is the number of input features.
 
     y : array-like, shape (n_samples,)
         Training labels as integers, where ``n_samples`` is the number of samples.
@@ -86,7 +83,7 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
         The number of training examples in a single forward/backward pass. As ``batch_size``
         increases, the memory required will also increase.
 
-    min_change : float, optional (default=1e-6)
+    min_change : float, optional (default=1e-3)
         An early stopping criterion. If the delta between the last cost and the new cost
         is less than ``min_change``, the network will stop fitting early (``early_stopping``
         must also be enabled for this feature to work).
@@ -132,10 +129,24 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
         A small amount of noise to add to the loss to avoid a potential computation of
         ``log(0)``.
 
+    gclip_min : float, optional (default=-5.)
+        The minimum value at which to clip the gradient. Gradient clipping can be
+        necessary for preventing vanishing or exploding gradients. Only necessary when
+        ``clip`` is True.
+
+    gclip_max : float, optional (default=5.)
+        The maximum value at which to clip the gradient. Gradient clipping can be
+        necessary for preventing vanishing or exploding gradients. Only necessary when
+        ``clip`` is True.
+
+    clip : bool, optional (default=True)
+        Whether or not to clip the gradient in ``[gclip_min, gclip_max]``. Gradient
+        clipping can be necessary for preventing vanishing or exploding gradients.
+
     shuffle : bool, optional (default=True)
         Whether to shuffle the output.
 
-    generate_args : dict, optional (default=``{}``)
+    generate_args : dict, optional (default=None)
         Any extra keyword arguments to pass to the generate function. These arguments will
         ultimately be passed into ``random_state.normal``. Appropriate args include:
 
@@ -144,6 +155,12 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
 
           * 'scale' : float or array_like of floats
             Standard deviation (spread or “width”) of the distribution.
+
+    prefit_estimators : dict, optional (default=None)
+        If a user has already fit a satisfactory VAE for a minority class, rather than
+        re-fit (at the mercy of Tensorflow's hard-to-reproduce backend), it can be passed
+        in a dictionary. Note that *not all* minority classes need to be present in the
+        dictionary; if a class is missing, a new VAE will be fit for that class.
     """
     # validate the cheap stuff before copying arrays around...
     X, y, n_classes, present_classes, \
@@ -161,6 +178,12 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
     # synthetic examples of already-reconstructed examples...
     X_copy = X[:, :]
 
+    # validate generate args
+    if generate_args is None:
+        generate_args = dict()
+    if prefit_estimators is None:
+        prefit_estimators = dict()
+
     # start the iteration...
     encoders = dict()  # map the label to the fit encoder
     for i, label in enumerate(present_classes):
@@ -171,22 +194,25 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
             encoders[label] = None
             continue
 
-        # fit the autoencoder
-        encoder = VariationalAutoEncoder(n_hidden=n_hidden, n_latent_factors=n_latent_factors,
-                                         activation_function=activation_function, learning_rate=learning_rate,
-                                         n_epochs=n_epochs, batch_size=batch_size, min_change=min_change,
-                                         verbose=verbose, display_step=display_step,
-                                         learning_function=learning_function,
-                                         early_stopping=early_stopping, bias_strategy=bias_strategy,
-                                         random_state=random_state, layer_type=layer_type, dropout=dropout,
-                                         l2_penalty=l2_penalty, eps=eps)
-
         # transform label
         transformed_label = le.transform([label])[0]
         X_sub = X[y_transform == transformed_label, :]
 
+        # fit the autoencoder (if it wasn't passed in)
+        encoder = prefit_estimators.get(label, None)
+        if encoder is None:
+            encoder = VariationalAutoEncoder(n_hidden=n_hidden, n_latent_factors=n_latent_factors,
+                                             activation_function=activation_function, learning_rate=learning_rate,
+                                             n_epochs=n_epochs, batch_size=batch_size, min_change=min_change,
+                                             verbose=verbose, display_step=display_step,
+                                             learning_function=learning_function,
+                                             early_stopping=early_stopping, bias_strategy=bias_strategy,
+                                             random_state=random_state, layer_type=layer_type, dropout=dropout,
+                                             l2_penalty=l2_penalty, eps=eps, gclip_min=gclip_min, gclip_max=gclip_max,
+                                             clip=clip).fit(X_sub)
+
         # fit the model, store it
-        encoders[label] = encoder.fit(X_sub)
+        encoders[label] = encoder
 
         # get the number of synthetic obs we need
         obs_req = target_count - X_sub.shape[0]

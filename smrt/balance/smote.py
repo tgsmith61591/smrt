@@ -19,10 +19,6 @@ __all__ = [
     'smote_balance'
 ]
 
-DEFAULT_SEED = base.DEFAULT_SEED
-MAX_N_CLASSES = base.MAX_N_CLASSES
-MIN_N_SAMPLES = base.MIN_N_SAMPLES
-
 
 def _perturb(consider_vector, nearest, random_state):
     return (consider_vector - nearest) * random_state.rand(nearest.shape[0], 1) + consider_vector
@@ -105,7 +101,7 @@ def _nearest_neighbors_for_class(X, label, label_encoder, y_transform, target_co
 
 def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='perturb', n_neighbors=5,
                   algorithm='kd_tree', leaf_size=30, p=2, metric='minkowski', metric_params=None, n_jobs=1,
-                  random_state=DEFAULT_SEED, shuffle=True):
+                  random_state=base.DEFAULT_SEED, shuffle=True):
     """Synthetic Minority Oversampling TEchnique (SMOTE) is a class balancing strategy that samples
     the k-Nearest Neighbors from each minority class, perturbs them with a random value between 0 and 1,
     and adds the difference between the original observation and the perturbation to the original observation
@@ -118,9 +114,9 @@ def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='pe
 
     Parameters
     ----------
-    X : array-like, shape (n_samples, n_inputs)
+    X : array-like, shape (n_samples, n_features)
         Training vectors as real numbers, where ``n_samples`` is the number of
-        samples and ``n_inputs`` is the number of input features.
+        samples and ``n_features`` is the number of input features.
 
     y : array-like, shape (n_samples,)
         Training labels as integers, where ``n_samples`` is the number of samples.

@@ -43,13 +43,15 @@ if [[ "$DISTRIB" == "conda" ]]; then
 
     pip install scikit-learn==$SCIKIT_LEARN_VERSION
     pip install coveralls
+    pip install codecov
 
     # Install TensorFlow
     # we have to make sure we install the CPU version otherwise we get into GCC/G++ issues...
     if [[ "$PYTHON_VERSION" == "2.7" ]]; then
       pip install https://storage.googleapis.com/tensorflow/linux/cpu/tensorflow-1.0.0-cp27-none-linux_x86_64.whl;
     elif [[ "$PYTHON_VERSION" == "3.5" ]]; then
-      pip install http://ci.tensorflow.org/view/Nightly/job/nightly-python35-linux-cpu/lastSuccessfulBuild/artifact/pip_test/whl/tensorflow-1.0.0rc2-cp35-cp35m-linux_x86_64.whl;
+      # pip install http://ci.tensorflow.org/view/Nightly/job/nightly-python35-linux-cpu/lastSuccessfulBuild/artifact/pip_test/whl/tensorflow-1.0.0rc2-cp35-cp35m-linux_x86_64.whl;
+      pip install https://storage.googleapis.com/tensorflow/linux/cpu/tensorflow-1.0.0-cp35-cp35m-linux_x86_64.whl;
     fi
 
     # Install nose-timer via pip

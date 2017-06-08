@@ -14,7 +14,7 @@ python -c "import scipy; print('scipy %s' % scipy.__version__)"
 python -c "import multiprocessing as mp; print('%d CPUs' % mp.cpu_count())"
 
 run_tests() {
-    # Get into a temp directory to run test from the installed scikit learn and
+    # Get into a temp directory to run test from the installed smrt and
     # check if we do not leave artifacts
     mkdir -p $TEST_DIR
     # We need the setup.cfg for the nose settings
@@ -23,6 +23,7 @@ run_tests() {
 
     if [[ "$COVERAGE" == "true" ]]; then
         nosetests -s --with-coverage --with-timer --timer-top-n 20 smrt
+        codecov --token=6de72173-c50f-4ebb-b7f1-22d592f56b01
     else
         nosetests -s --with-timer --timer-top-n 20 smrt
     fi

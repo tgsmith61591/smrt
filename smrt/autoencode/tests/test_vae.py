@@ -32,6 +32,9 @@ def test_autoencoder():
     # fit
     ae.fit(X_train)
 
+    # show we can get the shape
+    _ = ae.topography_.shape
+
     # train error
     # assert_almost_equal(ae.train_cost_, 0.00380031)
 
@@ -45,3 +48,7 @@ def test_autoencoder():
     # mse = ((X_test - reconstructed) ** 2).sum(axis=1).sum() / X_test.shape[0]
 
     # assert_almost_equal(mse, 4.40549573864)
+
+    # try creating a few synthetic ones using the generate_from_sample method
+    synth = ae.generate_from_sample(X_test[:5])
+    assert synth.shape[0] == 5
