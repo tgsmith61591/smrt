@@ -44,7 +44,7 @@ that resembles the input data.
 
 ### Original:
 
-The MNIST dataset was amended to contain only zeros and ones in an unbalanced (~1:11, respectively) ratio. The top row
+The MNIST dataset was amended to contain only zeros and ones in an unbalanced (~1:100, respectively) ratio. The top row
 are the original MNIST images, the second row is the SMRT-generated images, and the bottom row is the SMOTE-generated
 images:
 <br/>

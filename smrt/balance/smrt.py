@@ -181,8 +181,11 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
     # validate generate args
     if generate_args is None:
         generate_args = dict()
+
     if prefit_estimators is None:
         prefit_estimators = dict()
+    elif not isinstance(prefit_estimators, dict):
+        raise ValueError('if prefit estimators are provided, it must be a dict')
 
     # start the iteration...
     encoders = dict()  # map the label to the fit encoder
