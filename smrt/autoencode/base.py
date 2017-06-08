@@ -20,6 +20,7 @@ __all__ = [
 
 # common dtype used throughout
 DTYPE = tf.float32
+NPDTYPE = np.float64
 
 
 def _validate_positive_integer(instance, name):
@@ -52,7 +53,7 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
 
     def __init__(self, activation_function, learning_rate, n_epochs, batch_size, n_hidden, min_change,
                  verbose, display_step, learning_function, early_stopping, bias_strategy, random_state,
-                 layer_type, dropout, l2_penalty):
+                 layer_type, dropout, l2_penalty, gclip_min, gclip_max, clip):
 
         self.activation_function = activation_function
         self.learning_rate = learning_rate
@@ -69,6 +70,9 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         self.layer_type = layer_type
         self.dropout = dropout
         self.l2_penalty = l2_penalty
+        self.gclip_min = gclip_min
+        self.gclip_max = gclip_max
+        self.clip = clip
 
         # at exit, make sure we close the session
         import atexit
@@ -86,6 +90,17 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         # l2 is allowed to be None
         if self.l2_penalty is not None:
             self.l2_penalty = _validate_float(self, 'l2_penalty')
+
+    def encode(self, X):
+        """Pass the ``X`` array through the inferential MLP layers.
+
+        Parameters
+        ----------
+        X : array-like, shape=(n_samples, n_features)
+            The array of samples that will be encoded into the new
+            hidden layer space.
+        """
+        return self.transform(X)
 
     @abstractmethod
     def transform(self, X):
@@ -110,7 +125,17 @@ class ReconstructiveMixin:
 
 class GenerativeMixin:
     @abstractmethod
+    def decode(self, X):
+        """Decode an encoded example, ``X``"""
+
+    @abstractmethod
     def generate(self, *args, **kwargs):
+        """Generate a new example or set of examples, given a fit generative
+        model. Usually, the args passed in will relate to some fit parameters.
+        """
+
+    @abstractmethod
+    def generate_from_sample(self, *args, **kwargs):
         """Generate a new example or set of examples, given a fit generative
         model. Usually, the args passed in will relate to some fit parameters.
         """
