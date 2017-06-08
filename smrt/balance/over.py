@@ -25,9 +25,9 @@ def over_sample_balance(X, y, balance_ratio=0.2, random_state=base.DEFAULT_SEED)
 
     Parameters
     ----------
-    X : array-like, shape (n_samples, n_inputs)
+    X : array-like, shape (n_samples, n_features)
         Training vectors as real numbers, where ``n_samples`` is the number of
-        samples and ``n_inputs`` is the number of input features.
+        samples and ``n_features`` is the number of input features.
 
     y : array-like, shape (n_samples,)
         Training labels as integers, where ``n_samples`` is the number of samples.
