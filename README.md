@@ -50,13 +50,6 @@ images:
 <br/>
 <img src="examples/img/mnist_smrt_smote.png" width="600" alt="Original"/>
 
-### SMRT:
-
-Finally, the unbalanced set was balanced using a variational auto-encoder and the SMRT algorithm. These are the
-resulting images. Note how much more they resemble the actual input images:
-<br/>
-<img src="examples/img/smrt.png" width="600" alt="SMRT"/>
-
 ### Notes
 
 - See [examples](examples/) for usage
