@@ -7,7 +7,7 @@
 
 from __future__ import absolute_import
 import numpy as np
-from ..utils import validate_float
+from ..utils import validate_float, NPDTYPE
 from sklearn.utils import column_or_1d
 from sklearn.utils.multiclass import type_of_target
 from sklearn.utils.validation import check_array
@@ -22,7 +22,7 @@ def _validate_X_y_ratio_classes(X, y, ratio):
     validate_float(ratio, 'balance_ratio')
 
     # validate arrays
-    X = check_array(X, accept_sparse=False, dtype=np.float32)
+    X = check_array(X, accept_sparse=False, dtype=NPDTYPE, ensure_2d=True, copy=True)
     y = check_array(y, accept_sparse=False, ensure_2d=False, dtype=None)
     y = column_or_1d(y, warn=False)
 

@@ -52,7 +52,7 @@ def over_sample_balance(X, y, balance_ratio=0.2, random_state=base.DEFAULT_SEED)
     y_transform = le.transform(y)  # make numeric
 
     # we'll vstack/concatenate to these
-    out_X, out_y = X[:, :], y_transform[:]
+    out_X, out_y = X.copy(), y_transform.copy()
 
     # iterate the present classes
     for label in present_classes:

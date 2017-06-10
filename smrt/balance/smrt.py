@@ -24,8 +24,8 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
                  activation_function='sigmoid', learning_rate=0.05, n_epochs=20, batch_size=128, min_change=1e-3,
                  verbose=0, display_step=5, learning_function='rms_prop', early_stopping=False, bias_strategy='zeros',
                  random_state=base.DEFAULT_SEED, layer_type='xavier', dropout=1., l2_penalty=0.0001,
-                 eps=1e-10, gclip_min=-5., gclip_max=5., clip=True, shuffle=True, generate_args=None,
-                 prefit_estimators=None):
+                 eps=1e-10, gclip_min=-5., gclip_max=5., clip=True, shuffle=True, gen_from_samples=False,
+                 generate_args=None, prefit_estimators=None):
     """SMRT (Sythetic Minority Reconstruction Technique) is the younger, more sophisticated cousin to
     SMOTE (Synthetic Minority Oversampling TEchnique). Using variational auto-encoders, SMRT learns the
     latent factors that best reconstruct the observations in each minority class, and then generates synthetic
@@ -156,6 +156,11 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
           * 'scale' : float or array_like of floats
             Standard deviation (spread or “width”) of the distribution.
 
+    gen_from_samples : bool, optional (default=False)
+        Corresponds to which strategy should be used for sample generation. If True,
+        will use the :func:`generate_from_sample` method in the VAE, else will use the
+        :func:`generate` method.
+
     prefit_estimators : dict, optional (default=None)
         If a user has already fit a satisfactory VAE for a minority class, rather than
         re-fit (at the mercy of Tensorflow's hard-to-reproduce backend), it can be passed
@@ -176,7 +181,7 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
 
     # create X copy on which to append. We do this because we do not want to augment
     # synthetic examples of already-reconstructed examples...
-    X_copy = X[:, :]
+    X_copy = X.copy()
 
     # validate generate args
     if generate_args is None:
@@ -219,7 +224,14 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
 
         # get the number of synthetic obs we need
         obs_req = target_count - X_sub.shape[0]
-        synthetic = encoder.generate(n=obs_req, **generate_args)
+
+        # if we are not generating from the sample, just generate by sampling the dist:
+        if not gen_from_samples:
+            synthetic = encoder.generate(n=obs_req, **generate_args)
+        else:
+            idcs = np.arange(X_sub.shape[0])
+            sample_idcs = random_state.choice(idcs, size=obs_req, replace=True)
+            synthetic = encoder.generate_from_sample(X_sub[sample_idcs, :], **generate_args)
 
         # append
         X_copy = np.vstack([X_copy, synthetic])

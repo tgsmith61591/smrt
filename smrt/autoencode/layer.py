@@ -10,8 +10,8 @@ from sklearn.externals import six
 import tensorflow as tf
 import numpy as np
 from abc import ABCMeta, abstractmethod
-from ..utils import overrides, get_random_state, next_seed
-from .base import _validate_positive_integer, _validate_float, DTYPE
+from ..utils import overrides, get_random_state, next_seed, DTYPE
+from .base import _validate_positive_integer, _validate_float
 
 __all__ = [
     'GaussianDenseLayer',

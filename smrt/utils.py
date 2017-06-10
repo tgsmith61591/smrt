@@ -6,6 +6,8 @@
 
 from __future__ import absolute_import, division, print_function
 from numpy.random import RandomState
+import tensorflow as tf
+import numpy as np
 import sys
 
 __all__ = [
@@ -14,6 +16,12 @@ __all__ = [
     'overrides',
     'validate_float'
 ]
+
+# variables we'll use for a lot of stuff...
+DTYPE = tf.float32
+NPDTYPE = np.float64
+DEFAULT_L2 = 0.0001
+DEFAULT_DROPOUT = 1.
 
 if sys.version_info[0] >= 3:
     long = int
