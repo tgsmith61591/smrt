@@ -64,7 +64,7 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         self.learning_function = learning_function
         self.early_stopping = early_stopping
         self.bias_strategy = bias_strategy
-        self.random_state = random_state
+        self.random_state = get_random_state(random_state)
         self.layer_type = layer_type
         self.dropout = dropout
         self.l2_penalty = l2_penalty
@@ -167,8 +167,7 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         X = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True, dtype=NPDTYPE)
 
         # set the TF seed
-        rs = get_random_state(self.random_state)
-        tf.set_random_seed(rs.get_state()[1][0])
+        tf.set_random_seed(self.random_state.seed_value)
 
         # assign X to tf as a placeholder before graph init
         self.X_placeholder = tf.placeholder(DTYPE, [None, X.shape[1]])

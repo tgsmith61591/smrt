@@ -8,7 +8,7 @@
 from __future__ import division, absolute_import, division
 from sklearn.preprocessing import LabelEncoder
 from .base import _validate_X_y_ratio_classes
-from ..utils import get_random_state
+from ..utils import get_random_state, DEFAULT_SEED
 from . import base
 import numpy as np
 
@@ -17,7 +17,7 @@ __all__ = [
 ]
 
 
-def over_sample_balance(X, y, balance_ratio=0.2, random_state=base.DEFAULT_SEED):
+def over_sample_balance(X, y, balance_ratio=0.2, random_state=DEFAULT_SEED):
     """One strategy for balancing data is to over-sample the minority class until it is
     represented at the prescribed ``balance_ratio``. While there is significant literature
     to show that this is not the best technique, and can sometimes lead to over-fitting, there
@@ -37,10 +37,10 @@ def over_sample_balance(X, y, balance_ratio=0.2, random_state=base.DEFAULT_SEED)
         The minimum acceptable ratio of $MINORITY_CLASS : $MAJORITY_CLASS representation,
         where 0 < ``ratio`` <= 1
 
-    random_state : int, ``np.random.RandomState`` or None, optional (default=None)
-        The numpy random state for seeding random selections.
+    random_state : int or None, optional (default=None)
+        The seed to construct the random state to generate random selections.
     """
-    random_state = get_random_state(random_state)
+    random_state = get_random_state(random_state).state
 
     # validate before copying arrays around...
     X, y, n_classes, present_classes, \

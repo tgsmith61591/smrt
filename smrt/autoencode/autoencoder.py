@@ -13,7 +13,7 @@ from sklearn.utils.validation import check_is_fitted
 
 from .layer import SymmetricalAutoEncoderTopography, SymmetricalVAETopography
 from .base import BaseAutoEncoder, _validate_float
-from ..utils import overrides, get_random_state, NPDTYPE, DEFAULT_DROPOUT, DEFAULT_L2
+from ..utils import overrides, NPDTYPE, DEFAULT_DROPOUT, DEFAULT_L2
 from ._ae_utils import cross_entropy, kullback_leibler
 
 __all__ = [
@@ -535,8 +535,7 @@ class VariationalAutoEncoder(BaseAutoEncoder):
         z_mu, log_sigma = self.encode(X)  # calls transform
 
         # sample from the unit Gaussian:
-        rs = get_random_state(self.random_state)
-        eps = rs.normal(size=log_sigma.shape, **nrm_args)
+        eps = self.random_state.state.normal(size=log_sigma.shape, **nrm_args)
         z_mu += eps * np.exp(log_sigma)
 
         return self.feed_forward(z_mu)
@@ -563,5 +562,5 @@ class VariationalAutoEncoder(BaseAutoEncoder):
         check_is_fitted(self, 'topography_')
 
         # see https://github.com/fastforwardlabs/vae-tf/blob/master/vae.py#L194
-        z_mu = get_random_state(self.random_state).normal(size=(n, self.n_latent_factors), **nrm_args)
+        z_mu = self.random_state.state.normal(size=(n, self.n_latent_factors), **nrm_args)
         return self.feed_forward(z_mu)

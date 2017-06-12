@@ -12,7 +12,6 @@ from sklearn.utils import column_or_1d
 from sklearn.utils.multiclass import type_of_target
 from sklearn.utils.validation import check_array
 
-DEFAULT_SEED = 42
 MAX_N_CLASSES = 100  # max unique classes in y
 MIN_N_SAMPLES = 2  # min allowed ever.
 
