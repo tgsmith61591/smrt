@@ -64,7 +64,7 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         self.learning_function = learning_function
         self.early_stopping = early_stopping
         self.bias_strategy = bias_strategy
-        self.random_state = get_random_state(random_state)
+        self.random_state = random_state
         self.layer_type = layer_type
         self.dropout = dropout
         self.l2_penalty = l2_penalty
@@ -121,7 +121,7 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
             delattr(self, 'sess')
 
     @abstractmethod
-    def _initialize_graph(self, X, y):
+    def _initialize_graph(self, X, y, seeded_random_state):
         """Should be called in the ``fit`` method. This initializes the placeholder variables"""
 
     def _add_regularization(self, cost_function, topography):
@@ -167,18 +167,20 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         X = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True, dtype=NPDTYPE)
 
         # set the TF seed
-        tf.set_random_seed(self.random_state.seed_value)
+        seeded_random_state = get_random_state(self.random_state)
+        tf.set_random_seed(seeded_random_state.seed_value)
 
         # assign X to tf as a placeholder before graph init
         self.X_placeholder = tf.placeholder(DTYPE, [None, X.shape[1]])
 
         # initialize the graph for each re-fit
-        X, cost_function, optimizer, dropout = self._initialize_graph(X, y)
+        X, cost_function, optimizer, dropout = self._initialize_graph(X, y, seeded_random_state)
 
         # do training
-        return self._train(self.X_placeholder, X, cost_function, optimizer, dropout, **run_args)
+        return self._train(self.X_placeholder, X, cost_function, optimizer,
+                           dropout, seeded_random_state, **run_args)
 
-    def _train(self, X_placeholder, X_original, cost_function, optimizer, dropout, **run_args):
+    def _train(self, X_placeholder, X_original, cost_function, optimizer, dropout, seeded_random_state, **run_args):
         # initialize global vars for tf - replace them if they already exist
         init = tf.global_variables_initializer()
         self.clean_session()
@@ -241,6 +243,9 @@ class BaseAutoEncoder(six.with_metaclass(ABCMeta, BaseEstimator, TransformerMixi
         self.train_cost_ = c
         self.epoch_times_ = epoch_times
         self.epoch_costs_ = costs
+
+        # the seeded random state is also a fit param to be used in sample generation
+        self.random_state_ = seeded_random_state
 
         if self.verbose:
             print('Optimization complete after %i epoch(s). Average epoch time: %.4f seconds'

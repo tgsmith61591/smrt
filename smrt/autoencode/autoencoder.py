@@ -200,6 +200,9 @@ class AutoEncoder(BaseAutoEncoder):
     epoch_costs_ : list
         A list of each epoch's training cost.
 
+    random_state_ : SeededRandomState
+        A RandomState wrapper that retains the state of the current numpy random state.
+
 
     References
     ----------
@@ -227,7 +230,7 @@ class AutoEncoder(BaseAutoEncoder):
                                           gclip_max=gclip_max, clip=clip)
 
     @overrides(BaseAutoEncoder)
-    def _initialize_graph(self, X, y):
+    def _initialize_graph(self, X, y, seeded_random_state):
         # validate X, then make it into TF structure
         n_samples, n_features = X.shape
 
@@ -248,7 +251,7 @@ class AutoEncoder(BaseAutoEncoder):
                                                             layer_type=self.layer_type,
                                                             dropout=dropout,
                                                             bias_strategy=self.bias_strategy,
-                                                            random_state=self.random_state)
+                                                            random_state=seeded_random_state)
 
         # define the encoder, decoder functions
         y_pred, y_true = self.topography_.decode, self.X_placeholder
@@ -399,6 +402,9 @@ class VariationalAutoEncoder(BaseAutoEncoder):
     epoch_costs_ : list
         A list of each epoch's training cost.
 
+    random_state_ : SeededRandomState
+        A RandomState wrapper that retains the state of the current numpy random state.
+
 
     References
     ----------
@@ -431,7 +437,7 @@ class VariationalAutoEncoder(BaseAutoEncoder):
         self.eps = eps
 
     @overrides(BaseAutoEncoder)
-    def _initialize_graph(self, X, y):
+    def _initialize_graph(self, X, y, seeded_random_state):
         # validate X, then make it into TF structure
         n_samples, n_features = X.shape
 
@@ -454,7 +460,7 @@ class VariationalAutoEncoder(BaseAutoEncoder):
                                                     layer_type=self.layer_type,
                                                     dropout=dropout,
                                                     bias_strategy=self.bias_strategy,
-                                                    random_state=self.random_state)
+                                                    random_state=seeded_random_state)
 
         # Create the loss function optimizer. This dual-part loss function is adapted from code found at [2]
         # 1.) The reconstruction loss (the negative log probability of the input under the reconstructed
@@ -535,7 +541,7 @@ class VariationalAutoEncoder(BaseAutoEncoder):
         z_mu, log_sigma = self.encode(X)  # calls transform
 
         # sample from the unit Gaussian:
-        eps = self.random_state.state.normal(size=log_sigma.shape, **nrm_args)
+        eps = self.random_state_.state.normal(size=log_sigma.shape, **nrm_args)
         z_mu += eps * np.exp(log_sigma)
 
         return self.feed_forward(z_mu)
@@ -562,5 +568,5 @@ class VariationalAutoEncoder(BaseAutoEncoder):
         check_is_fitted(self, 'topography_')
 
         # see https://github.com/fastforwardlabs/vae-tf/blob/master/vae.py#L194
-        z_mu = self.random_state.state.normal(size=(n, self.n_latent_factors), **nrm_args)
+        z_mu = self.random_state_.state.normal(size=(n, self.n_latent_factors), **nrm_args)
         return self.feed_forward(z_mu)
