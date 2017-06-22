@@ -7,8 +7,7 @@
 
 from __future__ import division, absolute_import, division
 from .base import _validate_X_y_ratio_classes
-from ..utils import get_random_state
-from . import base
+from ..utils import get_random_state, DEFAULT_SEED
 import numpy as np
 
 __all__ = [
@@ -24,7 +23,7 @@ def _reorder(X, y, random_state, shuffle):
     return X[order, :], y[order]
 
 
-def under_sample_balance(X, y, balance_ratio=0.2, random_state=base.DEFAULT_SEED, shuffle=True):
+def under_sample_balance(X, y, balance_ratio=0.2, random_state=DEFAULT_SEED, shuffle=True):
     """One strategy for balancing data is to under-sample the majority class until it is
     represented at the prescribed ``balance_ratio``. This can be effective in cases where the
     training set is already quite large, and diminishing its size may not prove detrimental.
@@ -53,7 +52,7 @@ def under_sample_balance(X, y, balance_ratio=0.2, random_state=base.DEFAULT_SEED
     shuffle : bool, optional (default=True)
         Whether to shuffle the output.
     """
-    random_state = get_random_state(random_state)
+    random_state = get_random_state(random_state).state
 
     # validate before copying arrays around...
     X, y, n_classes, present_classes, \

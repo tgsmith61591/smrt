@@ -11,9 +11,8 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder
 
 from .base import _validate_X_y_ratio_classes
-from ..utils import get_random_state
+from ..utils import get_random_state, DEFAULT_SEED
 from ..autoencode import VariationalAutoEncoder
-from . import base
 
 __all__ = [
     'smrt_balance'
@@ -23,9 +22,9 @@ __all__ = [
 def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, balance_ratio=0.2,
                  activation_function='sigmoid', learning_rate=0.05, n_epochs=20, batch_size=128, min_change=1e-3,
                  verbose=0, display_step=5, learning_function='rms_prop', early_stopping=False, bias_strategy='zeros',
-                 random_state=base.DEFAULT_SEED, layer_type='xavier', dropout=1., l2_penalty=0.0001,
-                 eps=1e-10, gclip_min=-5., gclip_max=5., clip=True, shuffle=True, generate_args=None,
-                 prefit_estimators=None):
+                 random_state=DEFAULT_SEED, layer_type='xavier', dropout=1., l2_penalty=0.0001,
+                 eps=1e-10, gclip_min=-5., gclip_max=5., clip=True, shuffle=True, gen_from_samples=False,
+                 generate_args=None, prefit_estimators=None):
     """SMRT (Sythetic Minority Reconstruction Technique) is the younger, more sophisticated cousin to
     SMOTE (Synthetic Minority Oversampling TEchnique). Using variational auto-encoders, SMRT learns the
     latent factors that best reconstruct the observations in each minority class, and then generates synthetic
@@ -110,8 +109,8 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
         initialize all bias values as zeros. The alternative is 'ones', which will
         initialize all bias values as ones.
 
-    random_state : int, ``np.random.RandomState`` or None, optional (default=None)
-        The numpy random state for seeding random TensorFlow variables in weight initialization.
+    random_state : int or None, optional (default=None)
+        The seed to construct the random state to generate random selections.
 
     layer_type : str
         The type of layer, i.e., 'xavier'. This is the type of layer that
@@ -156,6 +155,11 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
           * 'scale' : float or array_like of floats
             Standard deviation (spread or “width”) of the distribution.
 
+    gen_from_samples : bool, optional (default=False)
+        Corresponds to which strategy should be used for sample generation. If True,
+        will use the :func:`generate_from_sample` method in the VAE, else will use the
+        :func:`generate` method.
+
     prefit_estimators : dict, optional (default=None)
         If a user has already fit a satisfactory VAE for a minority class, rather than
         re-fit (at the mercy of Tensorflow's hard-to-reproduce backend), it can be passed
@@ -166,8 +170,9 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
     X, y, n_classes, present_classes, \
     counts, majority_label, target_count = _validate_X_y_ratio_classes(X, y, balance_ratio)
 
-    # make sure it's not just an int
-    random_state = get_random_state(random_state)
+    # get the seeded random state and the state
+    seeded_random_state = get_random_state(random_state)
+    random_state = seeded_random_state.state
 
     # encode y, in case they are not numeric
     le = LabelEncoder()
@@ -176,23 +181,24 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
 
     # create X copy on which to append. We do this because we do not want to augment
     # synthetic examples of already-reconstructed examples...
-    X_copy = X[:, :]
+    X_copy = X.copy()
 
     # validate generate args
     if generate_args is None:
         generate_args = dict()
+
     if prefit_estimators is None:
         prefit_estimators = dict()
+    elif not isinstance(prefit_estimators, dict):
+        raise ValueError('if prefit estimators are provided, it must be a dict')
 
     # start the iteration...
     encoders = dict()  # map the label to the fit encoder
     for i, label in enumerate(present_classes):
-        if label == majority_label:
-            continue
-
         # if the count >= the ratio, skip this label
+        # also skip if it's the majority class (which would be covered in first condition, I guess...)
         count = counts[i]
-        if count >= target_count:
+        if label == majority_label or count >= target_count:
             encoders[label] = None
             continue
 
@@ -209,7 +215,7 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
                                              verbose=verbose, display_step=display_step,
                                              learning_function=learning_function,
                                              early_stopping=early_stopping, bias_strategy=bias_strategy,
-                                             random_state=random_state, layer_type=layer_type, dropout=dropout,
+                                             random_state=seeded_random_state, layer_type=layer_type, dropout=dropout,
                                              l2_penalty=l2_penalty, eps=eps, gclip_min=gclip_min, gclip_max=gclip_max,
                                              clip=clip).fit(X_sub)
 
@@ -218,12 +224,18 @@ def smrt_balance(X, y, n_hidden, n_latent_factors, return_estimators=False, bala
 
         # get the number of synthetic obs we need
         obs_req = target_count - X_sub.shape[0]
-        synthetic = encoder.generate(n=obs_req, **generate_args)
+
+        # if we are not generating from the sample, just generate by sampling the dist:
+        if not gen_from_samples:
+            synthetic = encoder.generate(n=obs_req, **generate_args)
+        else:
+            idcs = np.arange(X_sub.shape[0])
+            sample_idcs = random_state.choice(idcs, size=obs_req, replace=True)
+            synthetic = encoder.generate_from_sample(X_sub[sample_idcs, :], **generate_args)
 
         # append
         X_copy = np.vstack([X_copy, synthetic])
-        y_transform = np.concatenate([y_transform,
-                                      np.ones(obs_req, dtype=np.int16) * transformed_label])
+        y_transform = np.concatenate([y_transform, np.ones(obs_req, dtype=np.int16) * transformed_label])
 
     # now that X, y_transform have been assembled, inverse_transform the y_t back to its original state:
     y = le.inverse_transform(y_transform)
