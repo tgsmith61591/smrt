@@ -12,8 +12,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import LabelEncoder
 
 from .base import _validate_X_y_ratio_classes
-from ..utils import get_random_state
-from . import base
+from ..utils import DEFAULT_SEED, get_random_state
 
 __all__ = [
     'smote_balance'
@@ -101,7 +100,7 @@ def _nearest_neighbors_for_class(X, label, label_encoder, y_transform, target_co
 
 def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='perturb', n_neighbors=5,
                   algorithm='kd_tree', leaf_size=30, p=2, metric='minkowski', metric_params=None, n_jobs=1,
-                  random_state=base.DEFAULT_SEED, shuffle=True):
+                  random_state=DEFAULT_SEED, shuffle=True):
     """Synthetic Minority Oversampling TEchnique (SMOTE) is a class balancing strategy that samples
     the k-Nearest Neighbors from each minority class, perturbs them with a random value between 0 and 1,
     and adds the difference between the original observation and the perturbation to the original observation
@@ -208,8 +207,8 @@ def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='pe
     shuffle : bool, optional (default=True)
         Whether to shuffle the output.
 
-    random_state : int, ``np.random.RandomState`` or None, optional (default=None)
-        The numpy random state for seeding random TensorFlow variables in weight initialization.
+    random_state : int or None, optional (default=None)
+        The seed to construct the random state to generate random selections.
     """
     # validate the cheap stuff before copying arrays around...
     X, y, n_classes, present_classes, \
@@ -221,8 +220,8 @@ def smote_balance(X, y, return_estimators=False, balance_ratio=0.2, strategy='pe
     if strategy not in STRATEGIES:
         raise ValueError('strategy must be one of %r' % STRATEGIES)
 
-    # make sure it's not just an int
-    random_state = get_random_state(random_state)
+    # get the random state
+    random_state = get_random_state(random_state).state
 
     # encode y, in case they are not numeric (we need them to be for np.ones)
     le = LabelEncoder()

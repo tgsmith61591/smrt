@@ -42,7 +42,7 @@ def test_autoencoder():
     ae.transform(X_train)
 
     # transform and reconstruct the test images
-    reconstructed = ae.reconstruct(X_test)
+    reconstructed = ae.feed_forward(X_test)
 
     # get the error:
     mse = ((X_test - reconstructed) ** 2).sum(axis=1).sum() / X_test.shape[0]

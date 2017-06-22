@@ -5,17 +5,15 @@
 # The autoencoder(s)
 
 from __future__ import division, absolute_import, division
-import time
 import numpy as np
 import tensorflow as tf
 from sklearn.externals import six
-from sklearn.utils import gen_batches, check_array
+from sklearn.utils import check_array
 from sklearn.utils.validation import check_is_fitted
-from abc import ABCMeta, abstractmethod
 
-from .layer import SymmetricalAutoEncoderTopography, SymmetricalVAETopography, _BaseDenseLayer
-from .base import BaseAutoEncoder, ReconstructiveMixin, GenerativeMixin, _validate_float, DTYPE, NPDTYPE
-from ..utils import overrides, get_random_state
+from .layer import SymmetricalAutoEncoderTopography, SymmetricalVAETopography
+from .base import BaseAutoEncoder, _validate_float
+from ..utils import overrides, NPDTYPE, DEFAULT_DROPOUT, DEFAULT_L2
 from ._ae_utils import cross_entropy, kullback_leibler
 
 __all__ = [
@@ -23,9 +21,6 @@ __all__ = [
     'VariationalAutoEncoder'
 ]
 
-
-DEFAULT_L2 = 0.0001
-DEFAULT_DROPOUT = 1.
 
 # this dict maps all the supported activation functions to the tensorflow
 # equivalent functions for the session model training. It also maps all the
@@ -93,159 +88,7 @@ def _validate_activation_optimization(activation_function, learning_function):
     return activation, learning
 
 
-class _SymmetricAutoEncoder(six.with_metaclass(ABCMeta, BaseAutoEncoder)):
-    """Base class for the two provided autoencoders, which are architecturally symmetric
-    in terms of hidden layers. The encode/decode functions will not work for non-symmetrically-architected
-    neural networks.
-    """
-    def __init__(self, n_hidden, activation_function, learning_rate, n_epochs, batch_size, min_change, verbose,
-                 display_step, learning_function, early_stopping, bias_strategy, random_state, layer_type,
-                 dropout, l2_penalty, gclip_min, gclip_max, clip):
-
-        super(_SymmetricAutoEncoder, self).__init__(activation_function=activation_function,
-                                                    learning_rate=learning_rate, n_epochs=n_epochs,
-                                                    batch_size=batch_size, n_hidden=n_hidden,
-                                                    min_change=min_change, verbose=verbose,
-                                                    display_step=display_step,
-                                                    learning_function=learning_function,
-                                                    early_stopping=early_stopping,
-                                                    bias_strategy=bias_strategy,
-                                                    random_state=random_state,
-                                                    layer_type=layer_type, dropout=dropout,
-                                                    l2_penalty=l2_penalty, gclip_min=gclip_min,
-                                                    gclip_max=gclip_max, clip=clip)
-
-    @abstractmethod
-    def _initialize_graph(self, X, y):
-        """Should be called in the ``fit`` method. This initializes the placeholder variables"""
-
-    def _add_regularization(self, cost_function, topography):
-        if self.l2_penalty is not None:
-            penalties = [tf.nn.l2_loss(w) for w in topography.get_weights_biases()[0]]
-            l2_reg = self.l2_penalty * tf.add_n(penalties)
-            cost_function += l2_reg
-
-        return cost_function
-
-    def _clip_or_minimize(self, learning_function, rate, cost):
-        # https://stackoverflow.com/questions/36498127/how-to-effectively-apply-gradient-clipping-in-tensor-flow
-        if not self.clip:
-            return learning_function(rate).minimize(cost)
-        else:
-            global_step = tf.Variable(0, trainable=False)
-            optimizer = learning_function(rate)
-            grads = optimizer.compute_gradients(cost, tf.trainable_variables())
-            clipped = [
-                (tf.clip_by_value(grad, self.gclip_min, self.gclip_max), var)
-                for grad, var in grads
-                if grad is not None
-            ]
-
-            return optimizer.apply_gradients(clipped, global_step=global_step)
-
-    def fit(self, X, y=None, **run_args):
-        """Train the neural network.
-
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-            Training vectors as real numbers, where ``n_samples`` is the number of
-            samples and ``n_features`` is the number of input features.
-
-        y : array-like, optional (default=None)
-            None. Pass-through for pipe-lining.
-
-        **run_args : dict, optional
-            A key-word dictionary of arguments to be passed to the :func:`_train` method.
-        """
-        # validate array before graph init
-        X = check_array(X, accept_sparse=False, force_all_finite=True, ensure_2d=True, dtype=NPDTYPE)
-
-        # set the TF seed
-        rs = get_random_state(self.random_state)
-        tf.set_random_seed(rs.get_state()[1][0])
-
-        # assign X to tf as a placeholder before graph init
-        self.X_placeholder = tf.placeholder(DTYPE, [None, X.shape[1]])
-
-        # initialize the graph for each re-fit
-        X, cost_function, optimizer, dropout = self._initialize_graph(X, y)
-
-        # do training
-        return self._train(self.X_placeholder, X, cost_function, optimizer, dropout, **run_args)
-
-    def _train(self, X_placeholder, X_original, cost_function, optimizer, dropout, **run_args):
-        # initialize global vars for tf - replace them if they already exist
-        init = tf.global_variables_initializer()
-        self.clean_session()
-        sess = self.sess = tf.InteractiveSession()
-
-        # run the training session
-        sess.run(init)
-        epoch_times = []
-        costs = []
-        last_cost = None
-
-        # generate the batches in a generator from sklearn, but store
-        # in a list so we don't have to re-gen (since the generator will be
-        # empty by the end of the epoch)
-        n_samples = X_original.shape[0]
-        batches = list(gen_batches(n_samples, self.batch_size))
-
-        # training cycle. For each epoch
-        for epoch in range(self.n_epochs):
-            # track epoch time
-            start_time = time.time()
-
-            # loop batches
-            for batch in batches:
-
-                # extract the chunk given the slice, and assert it's not length 0 or anything weird...
-                chunk = X_original[batch, :]
-                m, _ = chunk.shape
-                assert m <= self.batch_size and m != 0  # sanity check
-
-                # train the batch - runs optimization op (backprop) and cost op (to get loss value)
-                _, c = sess.run([optimizer, cost_function],
-                                feed_dict={X_placeholder: chunk, dropout: self.dropout},
-                                **run_args)
-
-            # add the time to the times array to compute average later
-            epoch_time = time.time() - start_time
-            epoch_times.append(epoch_time)
-            costs.append(c)
-
-            # Display logs if display_step and verbose
-            if epoch % self.display_step == 0 and self.verbose > 1:
-                print('Epoch: %i, cost=%.6f, time=%.4f (sec)' % (epoch + 1, c, epoch_time))
-
-            # update last_cost, and if it meets the stopping criteria, break.
-            # we only do this if we've enabled early_stopping, though.
-            if self.early_stopping:
-                if last_cost is None:
-                    last_cost = c
-                else:
-                    delta = abs(last_cost - c)
-                    if delta <= self.min_change:
-                        if self.verbose:
-                            print('Convergence reached at epoch %i, stopping early' % epoch)
-                        break
-                    else:
-                        last_cost = c
-
-        # set instance vars
-        self.train_cost_ = c
-        self.epoch_times_ = epoch_times
-        self.epoch_costs_ = costs
-
-        if self.verbose:
-            print('Optimization complete after %i epoch(s). Average epoch time: %.4f seconds'
-                  % (len(epoch_times), np.average(epoch_times)))
-
-        return self
-
-
-class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
+class AutoEncoder(BaseAutoEncoder):
     """An AutoEncoder is a special case of a feed-forward neural network that attempts to learn
     a compressed feature space of the input tensor, and whose output layer seeks to reconstruct
     the original input. It is, therefore, a dimensionality reduction technique, on one hand, but
@@ -294,7 +137,7 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
 
     learning_function : str, optional (default='rms_prop')
         The optimizing function for training. Default is ``'rms_prop'``, which will use
-        the ``tf.train.RMSPropOptimizer``. Can be one of { ``'adadelta'``, ``'adagrad'``,
+        the ``tf.train.RMSPropOptimizer``. Can be one of {``'adadelta'``, ``'adagrad'``,
         ``'adagrad-da'``, ``'adam'``, ``'momentum'``, ``'proximal-sgd'``, ``'proximal-adagrad'``,
         ``'rms_prop'``, ``'sgd'``}
 
@@ -351,12 +194,20 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
     train_cost_ : float
         The final cost as a result of the training procedure on the training examples.
 
+    epoch_times_ : list
+        A list of the times that each epoch took to complete.
+
+    epoch_costs_ : list
+        A list of each epoch's training cost.
+
+    random_state_ : SeededRandomState
+        A RandomState wrapper that retains the state of the current numpy random state.
+
 
     References
     ----------
     [1] Y. LeCun, L. Bottou, Y. Bengio, and P. Haffner. "Gradient-based learning applied to document
         recognition." Proceedings of the IEEE, 86(11):2278-2324, November 1998.
-
     [2] http://jmlr.org/proceedings/papers/v9/glorot10a/glorot10a.pdf
     """
 
@@ -378,8 +229,8 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
                                           l2_penalty=l2_penalty, gclip_min=gclip_min,
                                           gclip_max=gclip_max, clip=clip)
 
-    @overrides(_SymmetricAutoEncoder)
-    def _initialize_graph(self, X, y):
+    @overrides(BaseAutoEncoder)
+    def _initialize_graph(self, X, y, seeded_random_state):
         # validate X, then make it into TF structure
         n_samples, n_features = X.shape
 
@@ -400,7 +251,7 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
                                                             layer_type=self.layer_type,
                                                             dropout=dropout,
                                                             bias_strategy=self.bias_strategy,
-                                                            random_state=self.random_state)
+                                                            random_state=seeded_random_state)
 
         # define the encoder, decoder functions
         y_pred, y_true = self.topography_.decode, self.X_placeholder
@@ -412,19 +263,26 @@ class AutoEncoder(_SymmetricAutoEncoder, ReconstructiveMixin):
         return X, cost_function, optimizer, dropout
 
     @overrides(BaseAutoEncoder)
-    def transform(self, X):
+    def encode(self, X):
         check_is_fitted(self, 'topography_')
         t = self.topography_
         return self.sess.run(t.encode, feed_dict={self.X_placeholder: X})
 
-    @overrides(ReconstructiveMixin)
-    def reconstruct(self, X):
+    @overrides(BaseAutoEncoder)
+    def feed_forward(self, X):
+        """Pass a matrix through both the encoding and decoding functions.
+
+        Parameters
+        ----------
+        X : array-like, shape=(n_samples, n_features)
+            The 2D array of samples.
+        """
         check_is_fitted(self, 'topography_')
         t = self.topography_
         return self.sess.run(t.decode, feed_dict={self.X_placeholder: X})
 
 
-class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
+class VariationalAutoEncoder(BaseAutoEncoder):
     """An AutoEncoder is a special case of a feed-forward neural network that attempts to learn
     a compressed feature space of the input tensor, and whose output layer seeks to reconstruct
     the original input. It is, therefore, a dimensionality reduction technique, on one hand, but
@@ -476,7 +334,7 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
 
     learning_function : str, optional (default='rms_prop')
         The optimizing function for training. Default is ``'rms_prop'``, which will use
-        the ``tf.train.RMSPropOptimizer``. Can be one of { ``'adadelta'``, ``'adagrad'``,
+        the ``tf.train.RMSPropOptimizer``. Can be one of {``'adadelta'``, ``'adagrad'``,
         ``'adagrad-da'``, ``'adam'``, ``'momentum'``, ``'proximal-sgd'``, ``'proximal-adagrad'``,
         ``'rms_prop'``, ``'sgd'``}
 
@@ -538,15 +396,21 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
     train_cost_ : float
         The final cost as a result of the training procedure on the training examples.
 
+    epoch_times_ : list
+        A list of the times that each epoch took to complete.
+
+    epoch_costs_ : list
+        A list of each epoch's training cost.
+
+    random_state_ : SeededRandomState
+        A RandomState wrapper that retains the state of the current numpy random state.
+
 
     References
     ----------
     [1] http://jmlr.org/proceedings/papers/v9/glorot10a/glorot10a.pdf
-
     [2] http://jmetzen.github.io/2015-11-27/vae.html
-
     [3] http://blog.fastforwardlabs.com/2016/08/12/introducing-variational-autoencoders-in-prose-and.html
-
     [4] https://arxiv.org/pdf/1606.05908.pdf
     """
     def __init__(self, n_hidden, n_latent_factors, activation_function='sigmoid', learning_rate=0.05,
@@ -572,8 +436,8 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
         self.n_latent_factors = n_latent_factors
         self.eps = eps
 
-    @overrides(_SymmetricAutoEncoder)
-    def _initialize_graph(self, X, y):
+    @overrides(BaseAutoEncoder)
+    def _initialize_graph(self, X, y, seeded_random_state):
         # validate X, then make it into TF structure
         n_samples, n_features = X.shape
 
@@ -596,7 +460,7 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
                                                     layer_type=self.layer_type,
                                                     dropout=dropout,
                                                     bias_strategy=self.bias_strategy,
-                                                    random_state=self.random_state)
+                                                    random_state=seeded_random_state)
 
         # Create the loss function optimizer. This dual-part loss function is adapted from code found at [2]
         # 1.) The reconstruction loss (the negative log probability of the input under the reconstructed
@@ -622,7 +486,7 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
         return X, cost_function, optimizer, dropout
 
     @overrides(BaseAutoEncoder)
-    def transform(self, X):
+    def encode(self, X):
         """The encode task. Given input samples, ``X``, transform
         the observations using the inferential MLP.
 
@@ -635,14 +499,14 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
         t = self.topography_
         return self.sess.run([t.z_mean_, t.z_log_sigma_], feed_dict={self.X_placeholder: X})
 
-    @overrides(GenerativeMixin)
-    def decode(self, X):
-        """Given an encoded set of samples, ``X``, decode them from latent space
+    @overrides(BaseAutoEncoder)
+    def feed_forward(self, X):
+        """Pass a matrix through both the encoding and decoding functions.
 
         Parameters
         ----------
         X : array-like, shape=(n_samples, n_features)
-            The input data.
+            The 2D array of samples.
         """
         check_is_fitted(self, 'topography_')
         t = self.topography_
@@ -652,7 +516,6 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
         # z ~ N(0, I)
         return self.sess.run(t.decode, feed_dict={t.z_: X})
 
-    @overrides(GenerativeMixin)
     def generate_from_sample(self, X, **nrm_args):
         """Given a sample, ``X``, encode and draw from the unit
         Gaussian posterior to generate the new examples.
@@ -678,13 +541,11 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
         z_mu, log_sigma = self.encode(X)  # calls transform
 
         # sample from the unit Gaussian:
-        rs = get_random_state(self.random_state)
-        eps = rs.normal(size=log_sigma.shape, **nrm_args)
+        eps = self.random_state_.state.normal(size=log_sigma.shape, **nrm_args)
         z_mu += eps * np.exp(log_sigma)
 
-        return self.decode(z_mu)
+        return self.feed_forward(z_mu)
 
-    @overrides(GenerativeMixin)
     def generate(self, n=1, **nrm_args):
         """Given a sample, ``X``, encode and draw from the unit
         Gaussian posterior to generate the new examples.
@@ -707,5 +568,5 @@ class VariationalAutoEncoder(_SymmetricAutoEncoder, GenerativeMixin):
         check_is_fitted(self, 'topography_')
 
         # see https://github.com/fastforwardlabs/vae-tf/blob/master/vae.py#L194
-        z_mu = get_random_state(self.random_state).normal(size=(n, self.n_latent_factors), **nrm_args)
-        return self.decode(z_mu)
+        z_mu = self.random_state_.state.normal(size=(n, self.n_latent_factors), **nrm_args)
+        return self.feed_forward(z_mu)
