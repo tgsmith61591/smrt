@@ -10,8 +10,8 @@ from sklearn.externals import six
 import tensorflow as tf
 import numpy as np
 from abc import ABCMeta, abstractmethod
-from ..utils import overrides, get_random_state, next_seed
-from .base import _validate_positive_integer, _validate_float, DTYPE
+from ..utils import overrides, get_random_state, DTYPE
+from .base import _validate_positive_integer, _validate_float
 
 __all__ = [
     'GaussianDenseLayer',
@@ -46,15 +46,30 @@ class _BaseSymmetricalTopography(BaseEstimator):
         random_state = get_random_state(random_state)
 
         # set encode/decode
-        self.encode, self.decode = self._initialize_layers(X_placeholder=X_placeholder,
-                                                           n_hidden=n_hidden,
-                                                           input_shape=input_shape,
-                                                           LayerClass=LayerClass,
-                                                           activation=activation,
-                                                           dropout=dropout,
-                                                           bias_strategy=bias_strategy,
-                                                           random_state=random_state,
-                                                           **kwargs)
+        (self.encode, self.decode,
+         self.encode_layers_, self.decode_layers_) = self._initialize_layers(X_placeholder=X_placeholder,
+                                                                             n_hidden=n_hidden,
+                                                                             input_shape=input_shape,
+                                                                             LayerClass=LayerClass,
+                                                                             activation=activation,
+                                                                             dropout=dropout,
+                                                                             bias_strategy=bias_strategy,
+                                                                             random_state=random_state,
+                                                                             **kwargs)
+
+        # set up the shape of the architecture
+        shape = []
+        for e in self.encode_layers_:
+            shape.append(e.fan_in)
+
+        last_decode = None
+        for d in self.decode_layers_:
+            last_decode = d
+            shape.append(d.fan_in)
+
+        # tack on the output shape
+        shape.append(last_decode.fan_out)
+        self.shape = tuple(shape)
 
     @abstractmethod
     def _initialize_layers(self, X_placeholder, n_hidden, input_shape, LayerClass, activation,
@@ -66,12 +81,25 @@ class _BaseSymmetricalTopography(BaseEstimator):
         # the decode layer.
 
     def get_weights_biases(self):
+        """Get a list of the weights and biases.
+
+        Returns
+        -------
+        weights : tuple
+            A tuple of ``tf.Tensor`` values that correspond to
+            the weights layers.
+
+        biases : tuple
+            A tuple of ``tf.Variable`` values that correspond
+            to the bias vectors.
+        """
         return list(zip(*[(layer.w_, layer.b_) for layer in (self.encode_layers_ + self.decode_layers_)]))
 
 
 class SymmetricalAutoEncoderTopography(_BaseSymmetricalTopography):
     """The architecture of the neural network. This connects layers together given
     the ``layer_type``.
+
 
     Parameters
     ----------
@@ -113,6 +141,9 @@ class SymmetricalAutoEncoderTopography(_BaseSymmetricalTopography):
 
     decode_layers_ : list
         The decode layers
+
+    shape : tuple
+        The architecture shape
     """
     def __init__(self, X_placeholder, n_hidden, input_shape, activation, layer_type='xavier', dropout=1.,
                  bias_strategy='zeros', random_state=None):
@@ -131,6 +162,7 @@ class SymmetricalAutoEncoderTopography(_BaseSymmetricalTopography):
         n_hidden.insert(0, input_shape)
         encode_dimensions = list(zip(n_hidden[:-1], n_hidden[1:]))
         decode_dimensions = [(v, k) for k, v in reversed(encode_dimensions)]  # pyramid back to n_features
+        seed = random_state.seed_value
 
         # this procedure creates a symmetrical topography
         encode_layers, decode_layers = [], []
@@ -144,7 +176,7 @@ class SymmetricalAutoEncoderTopography(_BaseSymmetricalTopography):
                 LayerClass(fan_in=dims[0], fan_out=dims[1],
                            activation=activation, dropout=dropout,
                            bias_strategy=bias_strategy,
-                           seed=next_seed(random_state))
+                           seed=seed)
                 for dims in (encode_fan, decode_fan)
             )
 
@@ -155,12 +187,14 @@ class SymmetricalAutoEncoderTopography(_BaseSymmetricalTopography):
         # the encode/decode operations
         encoder = _chain_layers(encode_layers, X_placeholder)
         decoder = _chain_layers(decode_layers, encoder)
-        return encoder, decoder
+        return encoder, decoder, encode_layers, decode_layers
 
 
 class SymmetricalVAETopography(_BaseSymmetricalTopography):
-    """The architecture of the neural network. This connects layers together given
-    the ``layer_type``.
+    """The architecture of the VAE autoencoder. This connects layers together given
+    the ``layer_type`` and provides the structure for the inferential network as well
+    as the generative network.
+
 
     Parameters
     ----------
@@ -205,6 +239,9 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
 
     decode_layers_ : list
         The decode layers
+
+    shape : tuple
+        The architecture shape
     """
     def __init__(self, X_placeholder, n_hidden, input_shape, activation, n_latent_factors, layer_type='xavier',
                  dropout=1., bias_strategy='zeros', random_state=None):
@@ -232,15 +269,20 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
                                                        random_state=random_state,
                                                        **{'n_latent_factors': self.n_latent_factors})
 
-    def _gaussian_sample(self, mu, log_sigma, random_state):
+    @staticmethod
+    def _gaussian_sample(mu, log_sigma, random_state):
         with tf.name_scope('gaussian_sample'):
-            epsilon = tf.random_normal(tf.shape(log_sigma), name='epsilon', seed=next_seed(random_state), dtype=DTYPE)
+            epsilon = tf.random_normal(tf.shape(log_sigma), name='epsilon',
+                                       seed=random_state.seed_value,
+                                       dtype=DTYPE)
+
             return tf.add(mu, tf.multiply(epsilon, tf.exp(log_sigma)))  # N(mu, I * sigma**2)
 
     @overrides(_BaseSymmetricalTopography)
     def _initialize_layers(self, X_placeholder, n_hidden, input_shape, LayerClass, activation,
                            dropout, bias_strategy, random_state, **kwargs):
         n_latent = kwargs.pop('n_latent_factors')  # will be there because we're injecting it in the super constructor
+        seed = random_state.seed_value
 
         # AE makes it easy to string layers together, but the VAE is a bit more
         # complex. So we'll use the _chain method that will string layers together
@@ -258,11 +300,11 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
             LayerClass(fan_in=fan_in, fan_out=fan_out,
                        activation=activation, dropout=dropout,
                        bias_strategy=bias_strategy,
-                       seed=next_seed(random_state))
+                       seed=seed)
             for fan_in, fan_out in encode_dimensions
         ]
 
-        # chain in reverse:
+        # chain:
         encode = _chain_layers(encoding_layers, X_placeholder)
 
         # add the latent distribution ("hidden code")
@@ -270,44 +312,40 @@ class SymmetricalVAETopography(_BaseSymmetricalTopography):
         z_mean, z_log_sigma = tuple(
             LayerClass(fan_in=n_hidden[-1], fan_out=n_latent, activation=activation,
                        dropout=dropout, bias_strategy=bias_strategy,
-                       seed=next_seed(random_state)).feed_forward(encode)  # operate on encode operation
+                       seed=seed).feed_forward(encode)  # operate on encode operation
             for _ in ('z_mean', 'z_log_sigma')  # just because easier to debug...
         )
 
-        # kingma & welling: only 1 draw necessary
+        # kingma & welling: only 1 draw necessary as long as minibatch large enough (>100)
         z = self._gaussian_sample(z_mean, z_log_sigma, random_state)
 
         # define decode layers - only to the second to last. The last layer
         # should use a sigmoid activation regardless of the defined activation
-        # (because binary cross entropy)
+        # (because binary cross entropy). These are the generative layers: p(x|z)
         decoding_layers = [
             LayerClass(fan_in=fan_in, fan_out=fan_out,
                        activation=activation, dropout=dropout,
                        bias_strategy=bias_strategy,
-                       seed=next_seed(random_state))
+                       seed=seed)
             for fan_in, fan_out in decode_dimensions[:-1]
         ]
 
-        # append the FINAL layer class which uses sigmoid
+        # append the FINAL layer class which uses sigmoid and squashes output to [0, 1]
         fi, fo = decode_dimensions[-1]  # fee, fi, fo... heh
         decoding_layers.append(LayerClass(fan_in=fi, fan_out=fo,
                                           activation=tf.nn.sigmoid, dropout=dropout,
                                           bias_strategy=bias_strategy,
-                                          seed=next_seed(random_state)))
+                                          seed=seed))
 
-        decode = _chain_layers(decoding_layers, z)  # generative function
+        decode = _chain_layers(decoding_layers, z)  # put all layers together
 
         # set some internals...
         self.z_mean_, self.z_log_sigma_, self.z_ = z_mean, z_log_sigma, z
 
-        return encode, decode
+        return encode, decode, encoding_layers, decoding_layers
 
 
 class _BaseDenseLayer(six.with_metaclass(ABCMeta, BaseEstimator)):
-    """Base dense layer"""
-    _WEIGHTS_NAME = 'weights'
-    _BIASES_NAME = 'biases'
-
     def __init__(self, fan_in, fan_out, activation, dropout, bias_strategy, seed):
         self.fan_in = fan_in
         self.fan_out = fan_out
@@ -340,17 +378,13 @@ class GaussianDenseLayer(_BaseDenseLayer):
     Parameters
     ----------
     fan_in : int
-        The dimension of the input.
+        The dimension of the input, i.e., the number of neurons in the input.
 
     fan_out : int
-        The dimension of the output.
+        The dimension of the output, i.e., the number of neurons in the output.
 
     activation : callable
         The activation function.
-
-    layer_type : str
-        The type of layer, i.e., 'xavier'. This is the type of layer that
-        will be generated. One of {'xavier', 'gaussian'}
 
     dropout : TensorFlow Placeholder
         The placeholder for the dropout
@@ -380,8 +414,7 @@ class GaussianDenseLayer(_BaseDenseLayer):
         initial_w = tf.random_normal([self.fan_in, self.fan_out], stddev=sd, seed=self.seed, dtype=DTYPE)
         initial_b = self.bias_strategy([self.fan_out], dtype=DTYPE)
 
-        return (tf.Variable(initial_w, trainable=True, name=_BaseDenseLayer._WEIGHTS_NAME),
-                tf.Variable(initial_b, trainable=True, name=_BaseDenseLayer._BIASES_NAME))
+        return tf.Variable(initial_w, trainable=True), tf.Variable(initial_b, trainable=True)
 
 
 class XavierDenseLayer(_BaseDenseLayer):
@@ -390,17 +423,13 @@ class XavierDenseLayer(_BaseDenseLayer):
     Parameters
     ----------
     fan_in : int
-        The dimension of the input.
+        The dimension of the input, i.e., the number of neurons in the input.
 
     fan_out : int
-        The dimension of the output.
+        The dimension of the output, i.e., the number of neurons in the output.
 
     activation : callable
         The activation function.
-
-    layer_type : str
-        The type of layer, i.e., 'xavier'. This is the type of layer that
-        will be generated. One of {'xavier', 'gaussian'}
 
     dropout : TensorFlow Placeholder
         The placeholder for the dropout
@@ -418,7 +447,7 @@ class XavierDenseLayer(_BaseDenseLayer):
     ----------
     [1] Based on code at https://github.com/fastforwardlabs/vae-tf
     """
-    def __init__(self, fan_in, fan_out, activation, dropout, l2_penalty=0.0001, bias_strategy='zeros', seed=42):
+    def __init__(self, fan_in, fan_out, activation, dropout, bias_strategy='zeros', seed=42):
         super(XavierDenseLayer, self).__init__(fan_in=fan_in, fan_out=fan_out, activation=activation,
                                                dropout=dropout, seed=seed, bias_strategy=bias_strategy)
 
@@ -432,8 +461,7 @@ class XavierDenseLayer(_BaseDenseLayer):
                                       maxval=high, dtype=DTYPE, seed=self.seed)
         initial_b = self.bias_strategy([self.fan_out], dtype=DTYPE)
 
-        return (tf.Variable(initial_w, trainable=True, name=_BaseDenseLayer._WEIGHTS_NAME),
-                tf.Variable(initial_b, trainable=True, name=_BaseDenseLayer._BIASES_NAME))
+        return tf.Variable(initial_w, trainable=True), tf.Variable(initial_b, trainable=True)
 
 # these are strategy/type mappings for mapping a str to a callable
 PERMITTED_LAYER_TYPES = {
