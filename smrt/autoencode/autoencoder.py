@@ -137,7 +137,7 @@ class AutoEncoder(BaseAutoEncoder):
 
     learning_function : str, optional (default='rms_prop')
         The optimizing function for training. Default is ``'rms_prop'``, which will use
-        the ``tf.train.RMSPropOptimizer``. Can be one of { ``'adadelta'``, ``'adagrad'``,
+        the ``tf.train.RMSPropOptimizer``. Can be one of {``'adadelta'``, ``'adagrad'``,
         ``'adagrad-da'``, ``'adam'``, ``'momentum'``, ``'proximal-sgd'``, ``'proximal-adagrad'``,
         ``'rms_prop'``, ``'sgd'``}
 
@@ -334,7 +334,7 @@ class VariationalAutoEncoder(BaseAutoEncoder):
 
     learning_function : str, optional (default='rms_prop')
         The optimizing function for training. Default is ``'rms_prop'``, which will use
-        the ``tf.train.RMSPropOptimizer``. Can be one of { ``'adadelta'``, ``'adagrad'``,
+        the ``tf.train.RMSPropOptimizer``. Can be one of {``'adadelta'``, ``'adagrad'``,
         ``'adagrad-da'``, ``'adam'``, ``'momentum'``, ``'proximal-sgd'``, ``'proximal-adagrad'``,
         ``'rms_prop'``, ``'sgd'``}
 
